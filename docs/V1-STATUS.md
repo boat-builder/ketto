@@ -1,11 +1,13 @@
 # v1 implementation — status and remaining work
 
-Branch: `claude/v1-implementation-dca836`. Last updated 2026-09-11.
+Branch: `claude/zealous-meitner-fvrp9p` (continues `claude/v1-implementation-dca836`).
+Last updated 2026-09-11.
 
-Everything below the "Done" line compiles under Swift 6 strict concurrency
-(`xcodebuild build-for-testing` succeeds) and the unit tests listed pass.
-Nothing has been run against a live screen capture yet: that needs the UI in
-section 3 plus Screen Recording permission granted to the built app.
+Every area of the v1 scope in SPEC.md section 6 now has an implementation. The engine,
+renderer and capture layers were built and verified in the previous pass; the playback,
+export and UI layers were added in this one on a machine without an Apple toolchain, so
+they have been reviewed for Swift 6 strict-concurrency correctness by hand but have not
+yet been compiled or run. The first thing to do on a Mac is section 3 below.
 
 ## Build and test
 
@@ -37,7 +39,7 @@ Project notes:
 - App Sandbox is off (direct-distribution assumption, open question 1 in SPEC).
   Hardened runtime is on, with the audio-input entitlement for the microphone.
 
-## Done
+## 1. Done
 
 | Area | Files | Tests |
 |---|---|---|
@@ -48,7 +50,10 @@ Project notes:
 | Camera path | `Engine/ZoomTimeline.swift`, `Engine/Viewport.swift`, `Engine/Easing.swift` | `ZoomTimelineTests` |
 | Per-frame state | `Engine/FrameComposer.swift`, `Engine/CursorGlyphs.swift` | `FrameComposerTests` |
 | Renderer | `Render/Shaders.metal`, `Render/ShaderTypes.h`, `Render/FrameRenderer.swift`, `Render/CursorAtlas.swift`, `Render/SourceTexture.swift`, `Render/TextureImage.swift` | `GoldenFrameTests` (3 committed reference PNGs in `RecorditoTests/Fixtures`) |
-| Capture | `Capture/*.swift` (see commit message of the capture commit) | `AudioAlignmentTests` (compiled, not yet executed in a test run) |
+| Capture | `Capture/*.swift` | `AudioAlignmentTests` |
+| Playback | `Playback/PreviewPlayer.swift`, `Playback/MetalPreviewView.swift`, `Playback/ProjectSession.swift` | exercised through the UI only |
+| Export | `Export/ExportSettings.swift`, `Export/Exporter.swift`, `Export/PublishDestination.swift` | `ExportPipelineTests` |
+| UI | `App/RecorditoApp.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `UI/ContentView.swift`, `UI/RecorderSetupView.swift`, `UI/RecordHUD.swift`, `UI/EditorView.swift`, `UI/InspectorView.swift`, `UI/ExportSheet.swift`, `UI/ColorBridging.swift` | manual |
 
 Engine details worth knowing before touching them:
 - Auto-zoom merges consecutive clusters with near-identical targets when the
@@ -66,130 +71,80 @@ Engine details worth knowing before touching them:
   pixels scaled by `canvasScale`, so a 960×540 preview and a 3840×2160 export
   are the same picture. Motion blur samples between `previousViewport` and
   `viewport`. Sampling uses a mipmapped private copy of the source frame
-  (`SourceTextureUploader`), which both preview and export must go through.
+  (`SourceTextureUploader`), which both preview and export go through.
+  IOSurface-backed buffers are wrapped without a copy; anything else is staged
+  through a shared texture.
+- `FrameComposer` has a second initialiser that takes a prebuilt `CursorTrack`.
+  `ProjectSession` uses it so inspector changes that do not touch the cursor
+  parameters (`FrameComposer.cursorParameters(for:)`) skip re-smoothing.
 
-## Remaining
+Playback, export and UI details:
+- `PreviewPlayer` builds an `AVMutableComposition` of `screen.mov` + `mic.caf`
+  + `system.caf` (audio mixed for monitoring only) and vends frames through an
+  `AVPlayerItemVideoOutput`. `MetalPreviewView`'s coordinator polls it on the
+  `MTKView` display link, uploads new frames through `SourceTextureUploader`
+  and encodes `composer.state(at:)` for the same item time, so the picture and
+  the overlays never drift apart. The output is re-armed with
+  `requestNotificationOfMediaDataChange` after seeks and after quiet spells so
+  it does not go dormant.
+- `ProjectSession.edit` is the single write path: assigning rebuilds the
+  composer immediately and autosaves `edit.json` 0.5 s later; the intensity
+  slider regenerates zooms 0.3 s after it settles; `close()` flushes.
+- `Exporter` runs on one serial queue: `AVAssetReaderTrackOutput` (BGRA) →
+  hold-last-frame resampling to the output frame rate → `FrameRenderer` into
+  the writer adaptor's pooled pixel buffers → `AVAssetWriter` (H.264 High,
+  ~0.09 bits/pixel/frame, 2–60 Mbps, BT.709 tags; AAC 48 kHz stereo 192 kbps
+  from an `AVAssetReaderAudioMixOutput` over both audio tracks). The audio
+  input is omitted when neither track exists. `cancel()` works before or
+  during a run. The finished temp file is handed to `LocalFileDestination`,
+  the only `PublishDestination` in v1.
+- `AppModel` is the phase machine (`setup` → `countdown` → `recording` →
+  `finishing` → `editing`). Starting a recording hides every visible window,
+  shows `RecordHUDPanel` (non-activating floating panel at the bottom centre of
+  the recorded display; excluded from capture because the engine excludes the
+  whole process, and its clicks are dropped by `EventRecorder`), counts down,
+  then starts the session. `RecordingSession.onUnexpectedStop` feeds the same
+  stop path. Quitting mid-recording stops the capture first
+  (`terminateLater`). `application(_:open:)` opens `.recordito` packages from
+  the Finder; ⌘N / ⌘O / ⌘E are in the File menu.
 
-### 1. Playback (`Recordito/Playback/`)
+## 2. Remaining
 
-- `PreviewPlayer` (`@MainActor`): `AVMutableComposition` with the
-  `screen.mov` video track plus `mic.caf` and `system.caf` audio tracks
-  inserted at zero (audio preview for free, still never pre-mixed on disk);
-  `AVPlayer` + `AVPlayerItemVideoOutput(pixelBufferAttributes:
-  [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
-  kCVPixelBufferMetalCompatibilityKey: true])`; `seek(to:toleranceBefore:
-  .zero, toleranceAfter: .zero)` for scrubbing; periodic time observer for the
-  transport UI; call `requestNotificationOfMediaDataChange(withAdvanceInterval:)`
-  after seeks and whenever `hasNewPixelBuffer` stays false, otherwise the
-  output goes dormant.
-- `MetalPreviewView`: `NSViewRepresentable` around `MTKView`
-  (`colorPixelFormat = .bgra8Unorm`, `preferredFramesPerSecond = 60`,
-  `isPaused = false`, `enableSetNeedsDisplay = false`). Coordinator conforms
-  with `@preconcurrency MTKViewDelegate`. In `draw(in:)`: `itemTime =
-  output.itemTime(forHostTime: CACurrentMediaTime())`; if
-  `hasNewPixelBuffer(forItemTime:)`, `copyPixelBuffer` and upload through
-  `SourceTextureUploader`; then `renderer.encode(state:
-  composer.state(at: itemTime.seconds), source:, into: drawable.texture,
-  commandBuffer:)`, present, commit. Keep the aspect ratio of the canvas with
-  `.aspectRatio(canvas.aspectRatio, contentMode: .fit)`.
-- `ProjectSession` (`@Observable @MainActor`): bundle + `EventsDocument` +
-  `EditDocument` + `SourceInfo(display:)`; rebuilds the `FrameComposer` when
-  the edit document changes (it is cheap: a few ms for a 2-minute track);
-  debounced autosave of `edit.json`; `regenerateZooms()` uses
-  `AutoZoomGenerator(parameters: AutoZoomParameters(intensity:))` with
-  `existing: edit.zooms` so user-modified zooms are preserved.
+### Manual acceptance pass (needs a person at the machine to grant TCC prompts)
 
-### 2. Export (`Recordito/Export/`)
+1. 2-minute 4K60 recording: `RecordingStatistics.droppedFrames == 0` (the editor
+   shows a warning line when frames were dropped), CPU under 15 % (Activity
+   Monitor).
+2. Auto zooms land on the content clicked in a typical app demo.
+3. Cursor visibly smooth; frame at a click shows the tip on the click point.
+4. Preview and export identical (golden test covers the renderer; compare a
+   paused preview frame with the exported frame at the same time).
+5. 2-minute 1080p60 export completes faster than real time. The export sheet
+   shows the ratio while rendering and in the completion message.
 
-- `ExportSettings`: presets 1080p / 1440p / 4K (canvas aspect preserved),
-  30 / 60 fps, H.264 High profile, bitrate roughly `pixels * fps * 0.09`
-  capped at 60 Mbps, AAC 48 kHz stereo 192 kbps.
-- `Exporter` (own serial queue, `@unchecked Sendable`, cancellable):
-  `AVAssetReader` on `screen.mov` with `AVAssetReaderTrackOutput`
-  `outputSettings: [kCVPixelBufferPixelFormatTypeKey: BGRA,
-  kCVPixelBufferMetalCompatibilityKey: true]`; `AVAssetWriter` (`.mp4`) with an
-  `AVAssetWriterInputPixelBufferAdaptor` whose `sourcePixelBufferAttributes`
-  are BGRA + Metal compatible so output frames are rendered straight into the
-  pool's buffers via `SourceTextureUploader.wrap`; video loop driven by
-  `videoInput.requestMediaDataWhenReady(on:)`: for frame `i` at `t = i / fps`
-  pull decoded frames until the next PTS exceeds `t`, hold the last one,
-  upload it (only when it changed), render `composer.state(at: t, fps:)`,
-  `commandBuffer.waitUntilCompleted()`, `adaptor.append(pixelBuffer,
-  withPresentationTime: CMTime(value: i, timescale: fps))`. Audio: a second
-  `AVAssetReader` on an `AVMutableComposition` of `mic.caf` + `system.caf`
-  with `AVAssetReaderAudioMixOutput` (LPCM) feeding an AAC
-  `AVAssetWriterInput` with its own `requestMediaDataWhenReady` loop. Tag
-  colour as BT.709 like the capture writer. Progress = frames / total. Skip
-  the audio input entirely when neither track exists.
-- `PublishDestination` protocol exactly as in SPEC.md section 3 plus
-  `VideoMetadata { title, description }`; `LocalFileDestination(targetURL:)`
-  moves the finished temp file into place and returns its URL.
-- Test: `ExportPipelineTests` writes a synthetic 2 s 320×200 30 fps
-  `screen.mov` with `AVAssetWriter` from `SyntheticSource.pixelBuffer`
-  frames, an events document from `SyntheticSource.events` scaled to that
-  size, runs the exporter to a temp `.mp4` at 640×360 30 fps, and asserts the
-  file exists, has a video track of that size and a duration within 0.1 s.
+## 3. What to check first on a Mac
 
-### 3. UI (`Recordito/UI/`, `Recordito/App/`)
+The new layers were written without a compiler. Expected trouble spots, in order:
 
-- `AppModel` (`@Observable @MainActor`): states `setup`, `countdown(n)`,
-  `recording(RecordingSession)`, `editing(ProjectSession)`, `exporting`.
-  Owns the HUD panel. `startRecording(configuration:)`: hide the main window
-  (`orderOut`), show the HUD, count 3-2-1, then `session.start()`. `stop()`:
-  `session.stop()`, close the HUD, open the editor with the bundle, show the
-  main window. Wire `RecordingSession.onUnexpectedStop` to the same path.
-- `RecorderSetupView`: if `CapturePermissions.screenRecordingGranted` is
-  false show the explanation with a "Grant Screen Recording Access" button
-  (`requestScreenRecording()`, then `openScreenRecordingSettings()` if it is
-  still false); display picker from `DisplayEnumerator.displays()`;
-  microphone toggle + `AudioInputDevice.available()` picker (permission is
-  requested by the session, lazily); system audio toggle; Record button;
-  recent projects from `ProjectLibrary.recentProjects()` with thumbnails.
-- `RecordHUDPanel` (`NSPanel` subclass: `.nonactivatingPanel`, `.borderless`,
-  level `.floating`, `collectionBehavior = [.canJoinAllSpaces,
-  .fullScreenAuxiliary, .stationary]`, `isMovableByWindowBackground`,
-  positioned at the bottom centre of the recorded display) hosting
-  `RecordHUDView` through `NSHostingView`: big countdown digits, then a red
-  dot, elapsed time, and a Stop button. The HUD never appears in the capture
-  because `ScreenCaptureEngine` excludes every window of our own process, and
-  clicks on it are dropped by `EventRecorder.handleClick`.
-- `EditorView`: `HSplitView { preview column | InspectorView }`. Preview
-  column: `MetalPreviewView` + transport bar (play/pause, scrubber `Slider`
-  bound to the player time, `mm:ss.f` labels). Toolbar: "Export…".
-- `InspectorView` (`Form`, `.formStyle(.grouped)`): Background (solid /
-  gradient picker, two `ColorPicker`s bound through `RGBAColor` ↔ `Color`
-  helpers, angle slider, a handful of gradient presets), Frame (padding 0–200,
-  corner radius 0–64, shadow radius 0–120 / opacity 0–1 / offset −40–80),
-  Cursor (scale 0.5–3, smoothing 0–1, hide when idle, click highlight), Zoom
-  (auto zoom toggle, intensity 0.5–1.5 with debounced regeneration,
-  "Regenerate" button), Effects (motion blur toggle).
-- `ExportSheet`: preset pickers, `NSSavePanel` (`.mpeg4Movie`, default name
-  from the bundle), progress bar, cancel, "Reveal in Finder" on completion.
-- `AppDelegate` via `NSApplicationDelegateAdaptor`: `application(_:open:)`
-  opens `.recordito` bundles from Finder; keep the app running when the last
-  window closes only while recording. Commands: New Recording (⌘N),
-  Open Project… (⌘O), Export… (⌘E).
-- Replace the placeholder `App/RecorditoApp.swift`.
-
-### 4. Docs and verification
-
-- README: replace "Status: Planning" with build/run instructions, the
-  permissions story, and the test commands above.
-- Manual acceptance pass (needs a person at the machine to grant TCC prompts):
-  1. 2-minute 4K60 recording: `RecordingStatistics.droppedFrames == 0`,
-     CPU under 15 % (Activity Monitor).
-  2. Auto zooms land on the content clicked in a typical app demo.
-  3. Cursor visibly smooth; frame at a click shows the tip on the click point.
-  4. Preview and export identical (golden test covers the renderer; compare a
-     paused preview frame with the exported frame at the same time).
-  5. 2-minute 1080p60 export completes faster than real time (log the ratio in
-     the export sheet).
-
-### 5. Known risks to check during the live test
-
+- Build errors. Likely candidates are Swift 6 isolation diagnostics in the
+  SwiftUI views (`Binding(get:set:)` closures and `LabeledSlider.format`),
+  the `@preconcurrency MTKViewDelegate` conformance in `MetalPreviewView`, and
+  Sendable diagnostics on AVFoundation types (every file that uses AVFoundation
+  imports it with `@preconcurrency`).
+- `ExportPipelineTests`: the first test writes a 2 s H.264 movie, exports it at
+  640×360 and checks the track size and duration. If `AVAssetReaderAudioMixOutput`
+  rejects the LPCM settings in `ExportSettings.audioDecodeSettings` on a real
+  bundle (the synthetic bundle has no audio), pass `nil` and let the AAC writer
+  input convert.
+- Live preview: if the first frame never appears, check that
+  `AVPlayerItemVideoOutput.hasNewPixelBuffer` starts returning true after the
+  item is ready; `PreviewPlayer.pollFrame` re-arms the output every 60 misses.
+- HUD: confirm it is absent from the recording and that its Stop click is not
+  in `events.json`.
 - ScreenCaptureKit audio arrives as float32 non-interleaved 48 kHz;
   `AlignedAudioWriter` converts other layouts with `AVAudioConverter`. Verify
-  `mic.caf` from `AVCaptureAudioDataOutput` (device-native format) plays back.
+  `mic.caf` from `AVCaptureAudioDataOutput` (device-native format) plays back
+  in the editor and lands in the export.
 - `CursorTypeDetector` matches `NSCursor.currentSystem` by rasterised alpha
   shape; verify the I-beam and pointing hand are detected in Safari/Xcode.
 - `EventRecorder.frontWindowFrame` relies on `CGWindowListCopyWindowInfo`
@@ -200,3 +155,14 @@ Engine details worth knowing before touching them:
 - Multi-display: cursor coordinates are converted from AppKit space using the
   main display's height (`DisplayEnumerator.cgPoint(fromCocoa:)`); verify on a
   secondary display, including one positioned above or left of the main one.
+  The HUD is positioned with the `NSScreen` whose `NSScreenNumber` matches the
+  chosen display.
+- Screen Recording permission: `CGPreflightScreenCaptureAccess` can keep
+  returning false until the app is relaunched after access is granted; the
+  recorder's banner says so.
+
+## 4. Stretch items not started
+
+- Click highlight ripple and motion blur are in (they were v1 stretch goals).
+- Nothing else from the v2 list has been started; the timeline, trim/cut,
+  webcam, aspect presets and masking all remain out of scope.

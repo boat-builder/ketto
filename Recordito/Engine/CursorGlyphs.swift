@@ -10,7 +10,7 @@ enum CursorGlyphs {
         switch type {
         case .arrow: return SIMD2(3 / 32, 2 / 32)
         case .iBeam: return SIMD2(0.5, 0.5)
-        case .pointingHand: return SIMD2(11 / 32, 3 / 32)
+        case .pointingHand: return SIMD2(12.75 / 32, 3 / 32)
         case .crosshair: return SIMD2(0.5, 0.5)
         case .resizeLeftRight: return SIMD2(0.5, 0.5)
         case .resizeUpDown: return SIMD2(0.5, 0.5)

@@ -29,9 +29,20 @@ final class SourceTextureUploader: @unchecked Sendable {
 
     /// Copies `pixelBuffer` into the mipmapped source texture. The blit and mipmap generation are encoded on
     /// `commandBuffer`; the returned texture is valid once that buffer completes.
+    /// IOSurface-backed buffers are wrapped without a copy; anything else goes through a shared staging texture.
     @discardableResult
     func upload(_ pixelBuffer: CVPixelBuffer, commandBuffer: MTLCommandBuffer) -> MTLTexture? {
-        guard let (level0, cvTexture) = wrap(pixelBuffer) else { return nil }
+        let level0: MTLTexture
+        let cvTexture: CVMetalTexture?
+        if let (wrapped, wrappedTexture) = wrap(pixelBuffer) {
+            level0 = wrapped
+            cvTexture = wrappedTexture
+        } else if let staged = stage(pixelBuffer) {
+            level0 = staged
+            cvTexture = nil
+        } else {
+            return nil
+        }
         let width = level0.width, height = level0.height
         if texture == nil || texture!.width != width || texture!.height != height {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: true)
@@ -49,4 +60,27 @@ final class SourceTextureUploader: @unchecked Sendable {
         if let cache = textureCache { CVMetalTextureCacheFlush(cache, 0) }
         return target
     }
+
+    /// Fallback for BGRA buffers that are not IOSurface-backed: copies the rows into a shared staging texture.
+    private func stage(_ pixelBuffer: CVPixelBuffer) -> MTLTexture? {
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else { return nil }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard width > 0, height > 0 else { return nil }
+        if stagingTexture == nil || stagingTexture!.width != width || stagingTexture!.height != height {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+            descriptor.usage = [.shaderRead]
+            descriptor.storageMode = .shared
+            stagingTexture = device.makeTexture(descriptor: descriptor)
+            stagingTexture?.label = "Recordito staging"
+        }
+        guard let staging = stagingTexture else { return nil }
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        staging.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: base, bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer))
+        return staging
+    }
+
+    private var stagingTexture: MTLTexture?
 }

@@ -82,16 +82,28 @@ struct FrameComposer: Sendable {
     static let rippleDuration = 0.6
 
     init(edit: EditDocument, events: EventsDocument, source: SourceInfo) {
+        let track = CursorSmoother.smooth(events: events, parameters: Self.cursorParameters(for: edit))
+        self.init(edit: edit, events: events, source: source, cursorTrack: track)
+    }
+
+    /// Builds a composer around an already smoothed cursor track. The editor uses this so that changing the
+    /// background or padding does not re-run cursor smoothing; the track only depends on `cursorParameters(for:)`.
+    init(edit: EditDocument, events: EventsDocument, source: SourceInfo, cursorTrack: CursorTrack) {
         self.edit = edit
         self.events = events
         self.source = source
         self.layout = CanvasLayout.compute(canvas: edit.canvas, style: edit.style, sourceAspect: source.aspect)
         self.zoomTimeline = edit.autoZoom.enabled ? ZoomTimeline(zooms: edit.zooms) : .identity
+        self.cursorTrack = cursorTrack
+        self.clicks = events.clicks.filter { $0.phase == .down }.sorted { $0.t < $1.t }
+    }
+
+    /// The smoothing parameters implied by an edit document. Two documents with equal parameters share a cursor track.
+    static func cursorParameters(for edit: EditDocument) -> CursorSmoothingParameters {
         var params = CursorSmoothingParameters()
         params.smoothing = edit.cursor.smoothing
         params.hideWhenIdle = edit.cursor.hideWhenIdle
-        self.cursorTrack = CursorSmoother.smooth(events: events, parameters: params)
-        self.clicks = events.clicks.filter { $0.phase == .down }.sorted { $0.t < $1.t }
+        return params
     }
 
     var duration: Double { events.duration }

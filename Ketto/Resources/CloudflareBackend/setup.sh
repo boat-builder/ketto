@@ -7,6 +7,9 @@
 #   wrangler.json  the Worker configuration
 #   worker.js      the Worker itself
 #
+# The prompt Ketto gives you for your coding agent spells out the same steps and points
+# here as the short route; the script also runs on its own in Terminal.
+#
 # What it does, in order: creates a private R2 bucket, gives it a rule that deletes videos
 # after three days, deploys the Worker on your domain, and stores the token in the Worker.
 # Nothing else on the account is touched. Every step is safe to repeat, so re-running the
@@ -61,7 +64,7 @@ step "Deploying the Worker '$KETTO_WORKER' to https://$KETTO_DOMAIN"
 wrangler deploy
 
 step "Storing Ketto's token in the Worker"
-[ -s ./secret.txt ] || fail "secret.txt is missing. In Ketto, open Settings > Sharing and generate the command again."
+[ -s ./secret.txt ] || fail "secret.txt is missing. In Ketto, open Settings > Sharing and start the setup again."
 wrangler secret put KETTO_TOKEN < ./secret.txt
 
 printf '\n\033[32mDone.\033[0m The sharing backend is live at https://%s\n' "$KETTO_DOMAIN"

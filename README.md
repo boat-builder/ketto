@@ -87,16 +87,16 @@ identity.
 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-140 tests covering the document schemas and bundle I/O, the edit timeline and its
+141 tests covering the document schemas and bundle I/O, the edit timeline and its
 operations, auto-zoom, cursor smoothing, the camera path and framing (including the
 vertical-export criterion), frame composition, audio alignment and processing, the
 renderer (golden-frame comparisons against committed PNGs plus the mask, camera and
 keystroke passes), playback compositions, the editor session (undo grouping, timeline
 operations, preset re-optimisation), capture timing, the export pipeline (MP4, HEVC MOV,
-GIF, cuts and speed, the camera track), and the sharing client (against an in-process
-stand-in for the Worker) and setup files. None of it needs a display, permissions, a
-capture or a network. Two of them are opt-in throughput benchmarks, skipped by default —
-see `KettoTests/ExportThroughputTests.swift` for how to run them.
+GIF, cuts and speed, the camera track), the sharing client (against an in-process stand-in
+for the Worker), the setup files and the agent prompt. None of it needs a display,
+permissions, a capture or a network. Two of them are opt-in throughput benchmarks, skipped
+by default — see `KettoTests/ExportThroughputTests.swift` for how to run them.
 
 The sharing backend itself is tested inside the real Workers runtime, from `WorkerTests/`
 (needs Node; nothing there ships in the app):
@@ -154,12 +154,15 @@ the frame under the playhead as an image.
 **Share Link**, in the same sheet, renders the video as MP4 (the only format the backend
 serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
 a link like `https://share.example.com/v/…` that works for about three days; a finished
-MP4 export offers the same with Share…. Settings › Sharing sets this up: it needs `wrangler`
-installed and logged in to a Cloudflare account that already holds the domain you want
-the links on. Enter the domain, copy the one command Ketto shows, run it in Terminal, and
-Ketto connects on its own once the Worker answers. The same page lists what is currently
-shared so a link can be copied again or the video removed early, and a second Mac can join
-the same bucket by pasting the address and token.
+MP4 export offers the same with Share…. Settings › Sharing sets this up through your coding
+agent: it needs `wrangler` on this Mac, logged in to a Cloudflare account that already holds
+the domain you want the links on. Enter the domain, press Copy Prompt, paste the prompt into
+your agent (Claude Code, Codex, Cursor…), and Ketto connects on its own once the Worker
+answers. The prompt names the folder Ketto wrote the Worker and its configuration to and
+spells out every wrangler step; the `setup.sh` in that folder runs the same steps for anyone
+who would rather use Terminal. The same page lists what is currently shared so a link can be
+copied again or the video removed early, and a second Mac can join the same bucket by
+pasting the address and token.
 
 Projects are `.ketto` packages in `~/Movies/Ketto`, holding the untouched screen
 recording (cursor not baked in), microphone, system audio and camera as separate tracks,

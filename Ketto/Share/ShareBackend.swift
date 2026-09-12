@@ -8,7 +8,7 @@ import Observation
 final class ShareBackend {
     enum SetupPhase: Equatable {
         case idle
-        /// The folder is written and the command can be copied; the app probes the domain until the Worker answers.
+        /// The folder is written and the prompt can be copied; the app probes the domain until the Worker answers.
         case waiting
         case connected
         case failed(String)
@@ -39,7 +39,7 @@ final class ShareBackend {
         self.session = session
         self.setupDirectory = setupDirectory
         connection = try? self.store.load()
-        // A setup generated earlier but never finished (the app was quit while the command ran, say) resumes
+        // A setup generated earlier but never finished (the app was quit while the agent worked, say) resumes
         // the moment the settings page is opened again.
         if connection == nil, let pending = ShareSetupBundle.pending(in: setupDirectory) {
             setupBundle = pending
@@ -125,6 +125,13 @@ final class ShareBackend {
 
     // MARK: - Setup
 
+    /// The Copy Prompt button: writes the setup folder for `setupDomain`, puts the prompt for the user's coding
+    /// agent on the clipboard and starts watching for the Worker to come up.
+    func startSetup() {
+        generateSetup()
+        if setupPhase == .waiting { copySetupPrompt() }
+    }
+
     /// Writes the setup folder for `setupDomain` and starts watching for the Worker to come up.
     func generateSetup() {
         do {
@@ -136,6 +143,7 @@ final class ShareBackend {
             setupPhase = .waiting
             startWatching()
         } catch {
+            setupBundle = nil
             setupPhase = .failed(error.localizedDescription)
         }
     }
@@ -149,9 +157,9 @@ final class ShareBackend {
         setupPhase = .idle
     }
 
-    func copySetupCommand() {
-        guard let command = setupBundle?.command else { return }
-        Self.copy(command)
+    func copySetupPrompt() {
+        guard let prompt = setupBundle?.prompt else { return }
+        Self.copy(prompt)
     }
 
     /// The settings page calls this when it appears, so a setup left waiting picks up again.
@@ -189,7 +197,7 @@ final class ShareBackend {
                     self.setupStatus = message
                 }
                 if Date() > deadline {
-                    self.setupStatus = "Stopped checking after 15 minutes. Once the command has finished, use Check Now."
+                    self.setupStatus = "Stopped checking after 15 minutes. Once the agent has finished, use Check Now."
                     self.setupTask = nil
                     return
                 }
@@ -210,7 +218,7 @@ final class ShareBackend {
         } catch ShareBackendError.notConfigured {
             return .waiting("The Worker is deployed; waiting for the token to be stored.")
         } catch ShareBackendError.unauthorized {
-            return .waiting("The Worker is up but rejected this token. If the command already finished, generate it again and re-run it.")
+            return .waiting("The Worker is up but rejected this token. If the setup already finished, it stored an older one: copy the prompt again and have the agent run it again.")
         } catch {
             return .waiting("Not reachable yet: \(error.localizedDescription)")
         }

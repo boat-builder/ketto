@@ -218,13 +218,18 @@ Worth knowing before touching any of it:
 ## Sharing
 
 - The backend is the user's own: `Resources/CloudflareBackend/worker.js` in front of a
-  private R2 bucket, deployed by `setup.sh` from the same folder. `ShareSetupBundle`
-  writes both, plus `wrangler.json`, `config.env` and `secret.txt` (0600), to
-  `~/Library/Application Support/Ketto/Cloudflare/`. `ShareBackend.startWatching()` then
-  polls `/api/status` every 3 s with a 15-minute budget, resumed whenever the settings
-  page appears, and moves the token into the Keychain the moment the Worker answers. The
-  address lives in `UserDefaults` (`shareBackendURL`); the Keychain is only read once an
-  address exists, so nobody who never set up sharing sees a Keychain prompt.
+  private R2 bucket, deployed with wrangler by the user's coding agent. `ShareSetupBundle`
+  writes the Worker and `setup.sh`, plus `wrangler.json`, `config.env` and `secret.txt`
+  (0600), to `~/Library/Application Support/Ketto/Cloudflare/`, and builds the prompt
+  (`ShareSetupBundle.prompt`) that Copy Prompt puts on the clipboard: the absolute folder
+  path, every step with its wrangler command, the rules (touch nothing else, never print
+  the token) and how to verify. `setup.sh` runs steps 3–6 of the same list and the prompt
+  offers it as the short route; `ShareSetupBundleTests` checks the two agree.
+  `ShareBackend.startWatching()` then polls `/api/status` every 3 s with a 15-minute
+  budget, resumed whenever the settings page appears, and moves the token into the
+  Keychain the moment the Worker answers. The address lives in `UserDefaults`
+  (`shareBackendURL`); the Keychain is only read once an address exists, so nobody who
+  never set up sharing sees a Keychain prompt.
 - `worker.js` is the contract. `API_VERSION` there must equal
   `ShareBackendClient.apiVersion`: bump both when a route changes shape and the app
   refuses an older backend with a message to re-run setup. `PART_SIZE` is the Worker's to
@@ -242,8 +247,9 @@ Worth knowing before touching any of it:
   itself to decide between 200, 206 and 416, and trusts `object.range` only for the
   `Content-Range` numbers.
 - Invariants: the bucket is never public; the token exists only in the Worker secret, the
-  Keychain, and `secret.txt` for the minutes between generating the command and the
-  Worker answering; the address must be HTTPS. Plain HTTP is accepted for `localhost`
+  Keychain, and `secret.txt` for the minutes between copying the prompt and the Worker
+  answering — never in the prompt itself, which would put it on the clipboard and in the
+  agent's transcript; the address must be HTTPS. Plain HTTP is accepted for `localhost`
   only, which `NSAllowsLocalNetworking` in `Info.plist` permits, for `wrangler dev`.
 - `WorkerTests/` runs the Worker inside the real runtime (`npm test`) and is where
   `npx wrangler dev` serves it locally. Its `wrangler.jsonc` mirrors the config the app

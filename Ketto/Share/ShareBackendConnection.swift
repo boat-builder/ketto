@@ -72,7 +72,7 @@ enum ShareBackendConnectionError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidURL(let text):
-            return "\u{201C}\(text)\u{201D} is not a backend address. Enter the domain the setup command used, like share.example.com."
+            return "\u{201C}\(text)\u{201D} is not a backend address. Enter the domain sharing was set up on, like share.example.com."
         case .insecureURL:
             return "The backend address must use HTTPS."
         case .invalidToken:

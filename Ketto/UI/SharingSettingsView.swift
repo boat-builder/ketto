@@ -11,6 +11,9 @@ struct SharingSettingsView: View {
     @State private var manualError: String?
     @State private var isConnectingManually = false
     @State private var pendingDeletion: SharedVideo?
+    /// Shows "Copied" next to the Copy Prompt button for a moment; the clipboard gives no feedback of its own.
+    @State private var promptCopied = false
+    @State private var promptCopiedReset: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -97,20 +100,21 @@ struct SharingSettingsView: View {
 
     private var setupSection: some View {
         Section("Set Up Sharing") {
-            Text("Ketto shares videos through your own Cloudflare account: a private bucket that deletes videos after about three days, and a small Worker that serves the links on a domain you own. Ketto writes the setup files; you run one command in Terminal.")
+            Text("Ketto shares videos through your own Cloudflare account: a private bucket that deletes videos after about three days, and a small Worker that serves the links on a domain you own. Ketto writes the Worker and its configuration to a folder and gives you a prompt; paste it into your coding agent (Claude Code, Codex, Cursor…) and the agent does the setup with wrangler.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Before you start")
                     .font(.subheadline.weight(.semibold))
-                Label("wrangler is installed and logged in to your Cloudflare account (wrangler login).", systemImage: "1.circle")
+                Label("The agent runs on this Mac, where wrangler is logged in to your Cloudflare account (wrangler login). The agent can install wrangler; only you can log in.", systemImage: "1.circle")
                 Label("That account already has the domain you want the links on.", systemImage: "2.circle")
             }
             .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
             TextField("Domain for links", text: $share.setupDomain, prompt: Text("share.example.com"))
                 .disabled(share.setupPhase == .waiting)
                 .onSubmit {
-                    if share.setupPhase != .waiting { share.generateSetup() }
+                    if share.setupPhase != .waiting { startSetup() }
                 }
             switch share.setupPhase {
             case .idle, .failed, .connected:
@@ -121,8 +125,10 @@ struct SharingSettingsView: View {
                             .foregroundStyle(.red)
                     }
                     Spacer()
-                    Button("Generate Setup Command") { share.generateSetup() }
+                    Button("Copy Prompt") { startSetup() }
+                        .buttonStyle(.borderedProminent)
                         .disabled(share.setupDomain.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .help("Writes the setup files for this domain and copies the prompt for your agent")
                 }
             case .waiting:
                 waitingControls
@@ -132,14 +138,17 @@ struct SharingSettingsView: View {
 
     private var waitingControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Run this in Terminal:")
+            Text("Paste this prompt into your coding agent and let it run:")
                 .font(.callout)
-            Text(share.setupBundle?.command ?? "")
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            ScrollView {
+                Text(share.setupBundle?.prompt ?? "")
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+            .frame(height: 200)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
@@ -153,12 +162,37 @@ struct SharingSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Button("Copy Command") { share.copySetupCommand() }
+                Button("Copy Prompt") { copyPrompt() }
                     .buttonStyle(.borderedProminent)
+                if promptCopied {
+                    Label("Copied", systemImage: "checkmark")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Check Now") { share.checkSetupNow() }
                 Spacer()
                 Button("Cancel Setup") { share.cancelSetup() }
             }
+        }
+    }
+
+    /// Writes the setup folder and copies the prompt in one go, as the button promises.
+    private func startSetup() {
+        share.startSetup()
+        if share.setupPhase == .waiting { showCopied() }
+    }
+
+    private func copyPrompt() {
+        share.copySetupPrompt()
+        showCopied()
+    }
+
+    private func showCopied() {
+        promptCopied = true
+        promptCopiedReset?.cancel()
+        promptCopiedReset = Task {
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { promptCopied = false }
         }
     }
 

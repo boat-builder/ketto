@@ -21,20 +21,24 @@ enum StillFrameRenderer {
         if composer.cameraAvailable, composer.edit.camera.enabled, bundle.hasCameraTrack {
             camera = try? await image(from: bundle.cameraURL, at: sourceTime)
         }
-        let state = composer.state(at: outputTime)
+        return try compose(state: composer.state(at: outputTime), canvas: composer.edit.canvas, screen: screen, camera: camera)
+    }
+
+    /// The synchronous Metal part: upload the frames, render, read back.
+    static func compose(state: FrameState, canvas: CanvasSpec, screen: CGImage, camera: CGImage?) throws -> BGRAImage {
         let renderer = try FrameRenderer()
         let uploader = SourceTextureUploader(device: renderer.device)
+        let cameraUploader = SourceTextureUploader(device: renderer.device)
         guard let commandBuffer = renderer.commandQueue.makeCommandBuffer() else { throw RenderError.commandBufferFailed }
         guard let screenImage = BGRAImage(cgImage: screen), let screenBuffer = screenImage.makePixelBuffer(),
               let sourceTexture = uploader.upload(screenBuffer, commandBuffer: commandBuffer) else { throw RenderError.textureCreationFailed }
         var cameraTexture: MTLTexture?
-        let cameraUploader = SourceTextureUploader(device: renderer.device)
         if let camera, let cameraImage = BGRAImage(cgImage: camera), let cameraBuffer = cameraImage.makePixelBuffer() {
             cameraTexture = cameraUploader.upload(cameraBuffer, commandBuffer: commandBuffer)
         }
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
-        let target = try renderer.makeReadableTarget(width: composer.edit.canvas.width, height: composer.edit.canvas.height)
+        let target = try renderer.makeReadableTarget(width: canvas.width, height: canvas.height)
         try renderer.render(state: state, source: sourceTexture, camera: cameraTexture, into: target)
         return BGRAImage(texture: target)
     }

@@ -64,7 +64,7 @@ final class AlignedAudioWriter: @unchecked Sendable {
 
     func append(_ sampleBuffer: CMSampleBuffer) {
         receivedBuffers += 1
-        guard let base = clock.base else {
+        guard clock.base != nil else {
             pending.append(sampleBuffer)
             if pending.count > Self.maxPending { pending.removeFirst(pending.count - Self.maxPending) }
             return
@@ -72,12 +72,14 @@ final class AlignedAudioWriter: @unchecked Sendable {
         if !pending.isEmpty {
             let queued = pending
             pending.removeAll()
-            for buffer in queued { write(buffer, base: base) }
+            for buffer in queued { write(buffer) }
         }
-        write(sampleBuffer, base: base)
+        write(sampleBuffer)
     }
 
-    private func write(_ sampleBuffer: CMSampleBuffer, base: Double) {
+    /// Writes one buffer at its recording time. Buffers timestamped inside a pause are dropped; the planner
+    /// trims the overlap of the first buffer after a pause and fills any gap with silence.
+    private func write(_ sampleBuffer: CMSampleBuffer) {
         guard error == nil, let description = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
         let bufferFormat = AVAudioFormat(cmAudioFormatDescription: description)
         do {
@@ -99,7 +101,8 @@ final class AlignedAudioWriter: @unchecked Sendable {
             let frameCount = Int(CMSampleBufferGetNumSamples(sampleBuffer))
             guard frameCount > 0 else { return }
             let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let plan = planner.plan(offsetSeconds: pts.seconds - base, frameCount: frameCount)
+            guard let offset = clock.recordingTime(forHost: pts.seconds) else { return }
+            let plan = planner.plan(offsetSeconds: offset, frameCount: frameCount)
             self.planner = planner
             if plan.silenceFrames > 0, let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(plan.silenceFrames)) {
                 silence.frameLength = AVAudioFrameCount(plan.silenceFrames)

@@ -5,11 +5,15 @@ import CoreGraphics
 import AppKit
 
 struct ScreenCaptureConfiguration: Sendable {
-    var display: CaptureDisplay
+    var source: CaptureSource
     var fps: Int = 60
     var captureSystemAudio: Bool = true
+    /// Leave the Finder's desktop icons out of the capture (the wallpaper stays). Display and region modes only.
+    var hideDesktopIcons: Bool = false
     var screenURL: URL
     var systemAudioURL: URL?
+
+    var display: CaptureDisplay { source.display }
 }
 
 /// Owns the `SCStream`. Frames go straight to the HEVC writer, system audio to its own CAF track.
@@ -38,18 +42,50 @@ final class ScreenCaptureEngine: @unchecked Sendable {
             throw CaptureError.displayNotFound
         }
         let ownPID = ProcessInfo.processInfo.processIdentifier
+        let streamConfiguration = SCStreamConfiguration()
         let filter: SCContentFilter
-        if let ownApp = content.applications.first(where: { $0.processID == ownPID }) {
-            filter = SCContentFilter(display: display, excludingApplications: [ownApp], exceptingWindows: [])
-        } else {
-            filter = SCContentFilter(display: display, excludingWindows: [])
+        let scale: Double
+        let width: Int
+        let height: Int
+
+        switch configuration.source {
+        case .window(let window):
+            guard let scWindow = content.windows.first(where: { $0.windowID == window.id }) else { throw CaptureError.windowNotFound }
+            filter = SCContentFilter(desktopIndependentWindow: scWindow)
+            scale = Double(filter.pointPixelScale)
+            let size = CaptureSource.pixelSize(points: scWindow.frame.size, scale: scale)
+            width = size.width
+            height = size.height
+        case .display, .region:
+            // Ketto's own windows (the record HUD) never appear in the capture; with `hideDesktopIcons` the
+            // Finder's icon layer goes too, leaving the wallpaper.
+            let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
+            if configuration.hideDesktopIcons {
+                let iconLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
+                let desktopIcons = content.windows.filter { $0.owningApplication?.bundleIdentifier == "com.apple.finder" && $0.windowLayer == iconLevel }
+                filter = SCContentFilter(display: display, excludingWindows: ownWindows + desktopIcons)
+            } else if let ownApp = content.applications.first(where: { $0.processID == ownPID }) {
+                filter = SCContentFilter(display: display, excludingApplications: [ownApp], exceptingWindows: [])
+            } else {
+                filter = SCContentFilter(display: display, excludingWindows: ownWindows)
+            }
+            scale = Double(filter.pointPixelScale)
+            if case .region(let captureDisplay, let rect) = configuration.source {
+                let region = CaptureSource.clamp(rect, to: captureDisplay.frame)
+                streamConfiguration.sourceRect = CGRect(
+                    x: region.minX - captureDisplay.frame.minX, y: region.minY - captureDisplay.frame.minY,
+                    width: region.width, height: region.height
+                )
+                let size = CaptureSource.pixelSize(points: region.size, scale: scale)
+                width = size.width
+                height = size.height
+            } else {
+                width = Int((Double(display.width) * scale).rounded())
+                height = Int((Double(display.height) * scale).rounded())
+            }
         }
-        let scale = Double(filter.pointPixelScale)
-        let width = Int((Double(display.width) * scale).rounded())
-        let height = Int((Double(display.height) * scale).rounded())
         capturedPixelSize = (width, height)
 
-        let streamConfiguration = SCStreamConfiguration()
         streamConfiguration.width = width
         streamConfiguration.height = height
         streamConfiguration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(configuration.fps, 1)))

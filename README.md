@@ -121,39 +121,54 @@ TEST_RUNNER_KETTO_UPDATE_GOLDEN=1 xcodebuild test -project Ketto.xcodeproj -sche
 
 ## Using it
 
-**Record.** Pick a display, a window or a region, choose microphone, system audio and
-camera, optionally keyboard-shortcut capture (asks for Accessibility access, only then)
-and hiding the desktop icons, then press Record. The main window hides, a floating control
-appears on the recorded display (never captured), and a 3-2-1 countdown runs. The control
-pauses and resumes the recording into one continuous file, and stops it.
+**Launch.** Ketto opens as a floating capture bar at the bottom of the display, not a
+window: Display / Window / Region, the source, the microphone, system audio, camera and
+keyboard-shortcut toggles (each with its device menu), Record, and a gear that opens the app
+window. Close the bar and Ketto lives on in the menu bar; ⌥⌘K brings the bar back, ⇧⌘R
+starts a recording from any app, ⇧⌘P pauses it. Settings › Recording can start Ketto in
+the menu bar only.
 
-**Edit.** On Stop the project opens in the editor: live preview, transport, the timeline
-and the inspector. The timeline shows a filmstrip with the voice and system waveforms, the
+**Record.** Choose what to capture on the bar (the window picker shows live thumbnails;
+Region drags a rectangle out on the display), then press Record. The bar and any app window
+hide, a countdown runs (3 s by default; 0, 5 or 10 in Settings) and the recording HUD
+takes the bar's place on the recorded display, never captured. The HUD pauses and resumes
+into one continuous file, and stops.
+
+**Edit.** On Stop the project opens in the editor, in the app window: live preview on a
+dark stage, transport, the timeline and the inspector. The timeline shows a filmstrip with the voice and system waveforms, the
 clips of the main track, the zoom blocks and the mask blocks. Drag a block to move it, its
 edges to retime it, with snapping to the playhead and neighbouring edges; double-click the
 zoom track to add a zoom; ⌘B splits the clip at the playhead; ⌫ deletes the selection
-(a deleted clip is a cut). The inspector covers canvas presets (16:9, 9:16, 1:1, 4:5; fit
-or fill framing), crop, background, frame, cursor (including loop-cursor), automatic
-zooms, the camera bubble, masks, keystroke display, audio (volumes, voice normalisation,
-noise removal) and effects. The preview is editable too: drag the crop, a mask's region,
+(a deleted clip is a cut). The inspector has four tabs — Look (canvas presets 16:9, 9:16, 1:1,
+4:5 with fit or fill framing, crop, background, frame), Motion (automatic zooms, cursor
+including loop-cursor, motion blur), Overlays (the camera bubble, masks, keystroke display)
+and Audio (volumes, voice normalisation, noise removal) — and whatever is selected on the
+timeline gets its own card on top. The preview is editable too: drag the crop, a mask's region,
 the camera bubble or a zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosave.
 
-**Export** (⌘E) offers Web (MP4 H.264 1080p60), Social (30 fps, higher bitrate), Hand-off
+**Export** (⌘E, or Export… in the editor's toolbar) offers Web (MP4 H.264 1080p60), Social (30 fps, higher bitrate), Hand-off
 (ProRes 422 MOV) and GIF presets, or any combination of MP4/MOV/GIF, H.264/HEVC/ProRes,
 1080p/1440p/4K and 30/60 fps, saved to a file or copied to the clipboard. ⇧⌘C copies
 the frame under the playhead as an image.
 
-**Share Link**, in the same sheet, renders the video as MP4 (the only format the backend
-serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
+**Share Link**, the editor's primary toolbar action and a button in the same sheet, renders
+the video as MP4 (the only format the backend serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
 a link like `https://share.example.com/v/…` that works for about three days; a finished
 MP4 export offers the same with Share…. Settings › Sharing sets this up: it needs `wrangler`
 installed and logged in to a Cloudflare account that already holds the domain you want
 the links on. Enter the domain, copy the one command Ketto shows, run it in Terminal, and
-Ketto connects on its own once the Worker answers. The same page lists what is currently
-shared so a link can be copied again or the video removed early, and a second Mac can join
-the same bucket by pasting the address and token.
+Ketto connects on its own once the Worker answers. Shared Links in the sidebar lists what
+is currently shared so a link can be copied again or the video removed early, and a second
+Mac can join the same bucket by pasting the address and token.
 
-Projects are `.ketto` packages in `~/Movies/Ketto`, holding the untouched screen
+**The app window** (the gear on the bar, ⌘L, or the menu bar item) holds the Library of
+projects grouped by day, Shared Links, and Settings: Recording (frame rate, countdown,
+desktop icons, launch behaviour, keyboard capture, storage folder, shortcuts, permissions),
+Sharing and Updates. It follows the system appearance; on macOS 26 the bar and the HUD are
+Liquid Glass.
+
+Projects are `.ketto` packages in `~/Movies/Ketto` (or the folder chosen in Settings ›
+Recording), holding the untouched screen
 recording (cursor not baked in), microphone, system audio and camera as separate tracks,
 the event track, and every editing decision in `edit.json`. Source media is never
 rewritten; the only files Ketto adds are rebuildable derived files (the processed voice
@@ -172,8 +187,8 @@ https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg
 
 Installed copies update themselves: Sparkle checks the feed daily, verifies the download
 against the EdDSA public key in `Info.plist`, swaps the bundle in place and relaunches.
-**Check for Updates…** in the Ketto menu, or the button in the top right of the
-recorder, does it on demand. Nothing is ever shown during a recording — a pending update
+**Check for Updates…** in the Ketto menu, in the menu bar item, or in Settings › Updates,
+does it on demand. Nothing is ever shown during a recording — a pending update
 waits as a badge rather than opening a window that would land in the video.
 
 Two workflows and two docs cover the whole of it:

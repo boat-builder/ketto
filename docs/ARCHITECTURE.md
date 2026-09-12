@@ -107,6 +107,35 @@ Worth knowing before touching any of it:
   recording with the crop rectangle over it; leaving the mode re-optimises the
   automatic zooms when the crop changed.
 
+## Surfaces
+
+- There is no SwiftUI window scene. `KettoApp` declares one `MenuBarExtra` (the status
+  item, which is also where the main menu's commands hang) and `AppModel` owns the three
+  AppKit surfaces: `CaptureBarPanel` (borderless, non-activating, floating, sized to its
+  SwiftUI content through `onGeometryChange` and anchored at its bottom centre),
+  `RecordHUDPanel`, and `MainWindowController` (a `.fullSizeContentView` window with a
+  transparent title bar; the sidebar and every page draw their own header, and the
+  editor its own toolbar, in the title-bar area). Nothing opens at launch except the bar,
+  or nothing at all when `showsCaptureBarAtLaunch` is off.
+- `CaptureSettings` is the one place the bar and Settings › Recording write to. Persistent
+  choices are computed properties over `UserDefaults` that go through the observation
+  registrar by hand (`access` / `withMutation`), so both surfaces update; the chosen
+  window and region are session-only.
+- `HotKeyCenter` registers ⇧⌘R, ⇧⌘P and ⌥⌘K through Carbon's `RegisterEventHotKey`:
+  no Accessibility access needed, and the key is consumed before the frontmost app sees
+  it. The same equivalents appear on the main menu and the status menu for discoverability
+  only; the hot key fires first.
+- `AppModel.Phase` is `idle` → `countdown` → `recording` → `finishing` → `editing`.
+  `hideSurfacesForCapture()` hides the bar and every visible window except the HUD and
+  defers Sparkle; `restoreSurfacesAfterCapture(showBar:)` brings the windows back and,
+  after a cancelled countdown only, the bar. A finished recording opens the editor in
+  the app window instead; closing that window while editing leaves the editor, saved.
+- `WindowThumbnailer` renders the picker's thumbnails with `SCScreenshotManager`, one
+  window at a time, and the picker falls back to the app icon for any it cannot get.
+- Liquid Glass: `glassSurface(_:)` in `Theme.swift` uses `glassEffect` under
+  `#available(macOS 26)` and a material with a hairline otherwise. The editor stage is
+  dark in both appearances (`KettoTheme.stage`); everything else follows the system.
+
 ## Timeline and inspector
 
 - `EditorTimelineView` maps output seconds to points with `TimelineGeometry`
@@ -130,6 +159,9 @@ Worth knowing before touching any of it:
 - The Edit menu replaces the standard Undo/Redo group (the session owns the
   stacks) and binds ⌫, ⌘B, ⌘K, ⇧⌘M and ⇧⌘C. These bare-key equivalents
   would also fire inside a text field; the editor has none.
+- The inspector is four tabs (Look, Motion, Overlays, Audio); selecting a zoom or a mask
+  on the timeline switches to the tab its controls live on, and the selection's own card
+  is always on top whatever the tab.
 
 ## Capture
 
@@ -257,10 +289,11 @@ annotations in system frameworks rather than defects here, and all three are del
   mirrored into `UpdateController.phase` from the delegate callbacks. Each callback carries
   an explicit `@objc(selector)`: they are optional requirements of an Objective-C protocol,
   where a mismatched Swift name is silently ignored instead of rejected by the compiler.
-- `AppModel.hideMainWindows()` / `showMainWindows()` are the choke point for
-  `setDeferred(_:)`. While deferred, `standardUserDriverShouldHandleShowingScheduledUpdate`
-  returns false, so a scheduled update becomes a badge in the recorder instead of a window
-  in the capture. The check button and the menu item are disabled over the same span.
+- `AppModel.hideSurfacesForCapture()` / `restoreSurfacesAfterCapture(showBar:)` are the
+  choke point for `setDeferred(_:)`. While deferred,
+  `standardUserDriverShouldHandleShowingScheduledUpdate` returns false, so a scheduled
+  update becomes a line in the sidebar and Settings › Updates instead of a window in the
+  capture. The check buttons and the menu items are disabled over the same span.
 - `phase` is also how "the check failed" is distinguished from "no update found" without
   matching on Sparkle's error codes: `didFinishUpdateCycleFor` only records a failure if
   neither `didFindValidUpdate` nor `updaterDidNotFindUpdate` moved `phase` first.
@@ -287,7 +320,8 @@ annotations in system frameworks rather than defects here, and all three are del
   (`DisplayEnumerator.cgPoint(fromCocoa:)`), which is the place a multi-display sign error
   would surface. `RegionSelectionView.convertToCG` makes the same assumption.
 - Screen Recording permission: `CGPreflightScreenCaptureAccess` can keep returning false
-  until the app is relaunched after access is granted; the recorder's banner says so.
+  until the app is relaunched after access is granted; the bar's permission chip and
+  Settings › Recording › Permissions say so.
   Accessibility behaves the same way for keystroke capture. Ad-hoc signing keys both grants
   to the binary's signature, so each rebuild can re-prompt — set a development team in the
   target's Signing settings for a stable identity.

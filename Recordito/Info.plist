@@ -16,7 +16,7 @@
 	<key>SUFeedURL</key>
 	<string>https://github.com/boat-builder/recordito/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>SPARKLE_PUBLIC_KEY_NOT_SET</string>
+	<string>+iop2lwAi9KhEvLJ7Bmkk381l2DFpUbFrXjX+uuHYv0=</string>
 	<!-- Check daily and install in the background, so a user who never opens a menu still ends
 	     up on the current build. Sparkle's own update window lets them turn either off. -->
 	<key>SUEnableAutomaticChecks</key>

@@ -55,3 +55,5 @@ client_secret*.json
 *.mov
 *.mp4
 *.caf
+
+.env

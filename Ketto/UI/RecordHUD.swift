@@ -73,10 +73,17 @@ struct RecordHUDView: View {
 
     private func countdown(_ remaining: Int) -> some View {
         HStack(spacing: 14) {
-            Text("\(max(remaining, 1))")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .frame(width: 40)
+            if remaining > 0 {
+                Text("\(remaining)")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 40)
+            } else {
+                // Countdown switched off: capture is starting right now.
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 40)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Starting…")
                     .font(.system(size: 13, weight: .semibold))

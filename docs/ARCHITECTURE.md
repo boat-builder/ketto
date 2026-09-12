@@ -88,6 +88,9 @@ annotations in system frameworks rather than defects here, and all three are del
   `applicationDidFinishLaunching`, never from `init`. It refuses to start at all unless
   `Info.plist` carries both a `SUFeedURL` and a real `SUPublicEDKey`, so a checkout without
   release keys is quiet rather than broken.
+- `start()` bails out under `XCTestConfigurationFilePath`. The unit tests run against the
+  app as their test host, so otherwise every `xcodebuild test` would check the update feed —
+  and, once a release exists, download and try to install one over the build in DerivedData.
 - `SPUUpdaterDelegate` is annotated `NS_SWIFT_UI_ACTOR` in Sparkle 2.9, so the conformance
   needs nothing; `SPUStandardUserDriverDelegate` is not, so that one carries
   `@preconcurrency` or Swift 6 rejects the whole module. Check the header before adding a

@@ -67,9 +67,14 @@ final class UpdateController: NSObject {
     }
 
     /// Starts Sparkle. Called once from `applicationDidFinishLaunching`; a no-op on a build with no
-    /// feed configured.
+    /// feed configured, and inside a test run.
     func start() {
         guard isConfigured, updaterController == nil else { return }
+        // `xcodebuild test` launches the app as the test host, so without this the updater runs on
+        // every test run: reaching the network for the feed, and — once a release exists, with
+        // SUAutomaticallyUpdate on — downloading it and trying to install over the build in
+        // DerivedData. The suite is meant to need no display, no permissions and no network.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: self,

@@ -185,19 +185,22 @@ Worth knowing before touching any of it:
 
 ## Expected build warnings
 
-One warning is expected on Xcode 26.6 / Swift 6.3.3:
+Three warnings are expected on Xcode 26.6 / Swift 6.3.3. All three are missing `Sendable`
+annotations in system frameworks rather than defects here, and all three are deliberate.
 
 - `Playback/MetalPreviewView.swift:38` — `'@preconcurrency' on conformance to
   'MTKViewDelegate' has no effect`. The macOS 26 SDK annotates `MTKViewDelegate`
   properly, so the attribute is now redundant; the macOS 15 SDK does not, and removing it
   would break the Xcode 16 build the README promises.
-
-Two earlier warnings went away with the v2 rewrite of their files: the
-`[String: Any]` pixel-buffer attributes in `PreviewPlayer` now live in a static helper the
-compiler accepts, and `SourceTexture.swift` has not been touched. If the
-`CVMetalTexture?` capture warning returns there, `nonisolated(unsafe)` on the binding is
-the intended escape hatch: the completion handler only keeps the texture alive until the
-GPU work finishes.
+- `Playback/PreviewPlayer.swift:61` — `type 'Any' does not conform to 'Sendable'` on the
+  `[String: Any]` pixel-buffer attributes handed to `AVPlayerItemVideoOutput`. An
+  AVFoundation annotation gap; the dictionary is a local value that is never shared.
+- `Render/SourceTexture.swift:59` — `capture of 'cvTexture' with non-Sendable type
+  'CVMetalTexture?' in a '@Sendable' closure`. A `CVMetalTexture` must outlive the GPU work
+  sampling from it, so the completion handler holds the only reference until the command
+  buffer finishes; the closure never reads or mutates it, and CoreVideo objects are safe to
+  retain and release from any thread. If a later compiler promotes this to an error,
+  `nonisolated(unsafe)` on the binding is the intended escape hatch.
 
 ## Updates
 

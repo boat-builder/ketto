@@ -83,13 +83,14 @@ identity.
 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-About 110 tests covering the document schemas and bundle I/O, the edit timeline and its
+114 tests covering the document schemas and bundle I/O, the edit timeline and its
 operations, auto-zoom, cursor smoothing, the camera path and framing (including the
 vertical-export criterion), frame composition, audio alignment and processing, the
 renderer (golden-frame comparisons against committed PNGs plus the mask, camera and
-keystroke passes), playback compositions, capture timing, and the export pipeline (MP4,
-HEVC MOV, GIF, cuts and speed). None of it needs a display, permissions or a capture. Two
-opt-in throughput benchmarks are skipped by default — see
+keystroke passes), playback compositions, the editor session (undo grouping, timeline
+operations, preset re-optimisation), capture timing, and the export pipeline (MP4, HEVC
+MOV, GIF, cuts and speed, the camera track). None of it needs a display, permissions or a
+capture. Two of them are opt-in throughput benchmarks, skipped by default — see
 `KettoTests/ExportThroughputTests.swift` for how to run them.
 
 Most of the engine is plain Swift with no Apple frameworks, so it also builds and tests

@@ -113,6 +113,14 @@ annotations in system frameworks rather than defects here, and all three are del
   between Swift and Metal.
 - App Sandbox is off (direct-distribution assumption, open question 1 in SPEC). Hardened
   runtime is on, with the audio-input entitlement for the microphone.
+- The app icon is generated from `recordito-logo.svg` at the repository root. After
+  changing the logo, re-run `swift Scripts/make-appicon.swift` from the root: it rewrites
+  the ten PNGs and the `Contents.json` in
+  `Recordito/Resources/Assets.xcassets/AppIcon.appiconset`. Each slot is rasterised
+  straight from the vector at its exact pixel size rather than downsampled from one large
+  bitmap, so the 16 pt icon stays legible. `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`
+  makes the asset compiler inject `CFBundleIconName` at build time, so no icon key is
+  needed in `Info.plist`.
 - Running the test suite against a **Release** build needs two overrides:
   `ENABLE_TESTABILITY=YES` (Release turns it off, and `@testable import` requires it) and
   `ENABLE_HARDENED_RUNTIME=NO` (library validation otherwise refuses to load an

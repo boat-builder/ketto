@@ -7,7 +7,7 @@
 # macOS only — generate_keys stores the private key in your login Keychain.
 #
 # What comes out:
-#   * a PUBLIC key, which goes into Recordito/Info.plist under SUPublicEDKey and is
+#   * a PUBLIC key, which goes into Ketto/Info.plist under SUPublicEDKey and is
 #     committed. Every installed copy verifies downloads against it.
 #   * a PRIVATE key, exported to a file so it can be pasted into the repository secret
 #     SPARKLE_PRIVATE_KEY, which is what the release workflow signs each update with.
@@ -25,7 +25,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
     exit 1
 fi
 
-resolved="Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+resolved="Ketto.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 sparkle_version="$(/usr/bin/python3 -c 'import json,sys; print(next((p["state"]["version"] for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "sparkle"), ""))' "$resolved")"
 if [ -z "$sparkle_version" ]; then
     echo "Could not read the pinned Sparkle version out of $resolved" >&2
@@ -55,7 +55,7 @@ cat <<EOF
 ────────────────────────────────────────────────────────────────────────────
 Two things to do with this, and then you are done forever.
 
-1. Commit the public key. In Recordito/Info.plist, replace the SUPublicEDKey
+1. Commit the public key. In Ketto/Info.plist, replace the SUPublicEDKey
    placeholder with:
 
        $public_key
@@ -65,7 +65,7 @@ Two things to do with this, and then you are done forever.
        gh secret set SPARKLE_PRIVATE_KEY < "$private_key_file"
 
    …or paste the contents at
-   https://github.com/boat-builder/recordito/settings/secrets/actions
+   https://github.com/boat-builder/ketto/settings/secrets/actions
 
 Then delete the exported copy — the Keychain still has it:
 

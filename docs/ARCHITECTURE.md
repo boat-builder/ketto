@@ -1,4 +1,4 @@
-# Recordito architecture notes
+# Ketto architecture notes
 
 How the shipped v1 pipeline actually behaves: the tuning constants, the invariants, and
 the things that are easy to break by accident. The rationale for the design lives in
@@ -59,7 +59,7 @@ Worth knowing before touching any of it:
   whole process, and its clicks are dropped by `EventRecorder`), counts down,
   then starts the session. `RecordingSession.onUnexpectedStop` feeds the same
   stop path. Quitting mid-recording stops the capture first
-  (`terminateLater`). `application(_:open:)` opens `.recordito` packages from
+  (`terminateLater`). `application(_:open:)` opens `.ketto` packages from
   the Finder; ⌘N / ⌘O / ⌘E are in the File menu.
 
 ## Expected build warnings
@@ -128,13 +128,13 @@ annotations in system frameworks rather than defects here, and all three are del
 
 ## Project layout notes
 
-- Hand-written `Recordito.xcodeproj` using Xcode 16+ synchronized folder groups: every
-  file under `Recordito/` and `RecorditoTests/` is picked up automatically. `Info.plist`
+- Hand-written `Ketto.xcodeproj` using Xcode 16+ synchronized folder groups: every
+  file under `Ketto/` and `KettoTests/` is picked up automatically. `Info.plist`
   and the entitlements file are membership exceptions.
 - `SWIFT_VERSION = 6.0`, `SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated` (classic Swift 6
   semantics; UI classes are annotated `@MainActor` explicitly),
   `SWIFT_STRICT_CONCURRENCY = complete`.
-- `SWIFT_OBJC_BRIDGING_HEADER = Recordito/Render/ShaderTypes.h` shares the uniform struct
+- `SWIFT_OBJC_BRIDGING_HEADER = Ketto/Render/ShaderTypes.h` shares the uniform struct
   between Swift and Metal.
 - App Sandbox is off (direct-distribution assumption, open question 1 in SPEC). Hardened
   runtime is on, with the audio-input entitlement for the microphone. Local builds sign ad
@@ -145,7 +145,7 @@ annotations in system frameworks rather than defects here, and all three are del
 - Sparkle is the only package dependency, linked into the app target and embedded
   automatically by Xcode. The test target does not link it; it gets
   `FRAMEWORK_SEARCH_PATHS` and `LD_RUNPATH_SEARCH_PATHS` entries instead, which is all
-  `@testable import Recordito` needs to resolve the Sparkle types `UpdateController`
+  `@testable import Ketto` needs to resolve the Sparkle types `UpdateController`
   mentions.
 - `MARKETING_VERSION` (`CFBundleShortVersionString`) and `CURRENT_PROJECT_VERSION`
   (`CFBundleVersion`) are both stamped to the same `X.Y.Z` at release time. Sparkle
@@ -153,10 +153,10 @@ annotations in system frameworks rather than defects here, and all three are del
   keys equal makes that a plain dotted-version comparison. Nothing shipped before this
   scheme, so there is no build carrying the old `CURRENT_PROJECT_VERSION = 1` for it to
   compare against.
-- The app icon is generated from `recordito-logo.svg` at the repository root. After
+- The app icon is generated from `ketto-logo.svg` at the repository root. After
   changing the logo, re-run `swift Scripts/make-appicon.swift` from the root: it rewrites
   the ten PNGs and the `Contents.json` in
-  `Recordito/Resources/Assets.xcassets/AppIcon.appiconset`. Each slot is rasterised
+  `Ketto/Resources/Assets.xcassets/AppIcon.appiconset`. Each slot is rasterised
   straight from the vector at its exact pixel size rather than downsampled from one large
   bitmap, so the 16 pt icon stays legible. `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`
   makes the asset compiler inject `CFBundleIconName` at build time, so no icon key is

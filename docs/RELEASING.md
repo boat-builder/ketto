@@ -1,4 +1,4 @@
-# Releasing Recordito
+# Releasing Ketto
 
 Every push to `main` cuts a signed, notarized release and hands it to everyone already
 running the app. Nothing here is manual once the secrets below exist.
@@ -8,19 +8,19 @@ push to main
   └─ test           build + 47 unit tests                       (macos-26)
       └─ bump       next version → stamp project → tag vX.Y.Z   (ubuntu)
           └─ build  archive → Developer ID → notarize → staple  (macos-26)
-                    ├─ Recordito-X.Y.Z.dmg      what a new user downloads
-                    ├─ Recordito-macos.dmg      version-less alias for a stable URL
-                    ├─ Recordito-X.Y.Z.zip      what Sparkle installs in place
+                    ├─ Ketto-X.Y.Z.dmg          what a new user downloads
+                    ├─ Ketto-macos.dmg          version-less alias for a stable URL
+                    ├─ Ketto-X.Y.Z.zip          what Sparkle installs in place
                     ├─ appcast.xml              the feed every installed copy polls
-                    ├─ Recordito-X.Y.Z-dSYMs.zip
+                    ├─ Ketto-X.Y.Z-dSYMs.zip
                     └─ SHA256SUMS
 ```
 
 The running app reads
-`https://github.com/boat-builder/recordito/releases/latest/download/appcast.xml`, which
+`https://github.com/boat-builder/ketto/releases/latest/download/appcast.xml`, which
 always resolves to the newest release's copy, downloads the zip named in it, checks the
 EdDSA signature against the public key in its own `Info.plist`, swaps the bundle in place
-and relaunches. See `Recordito/App/UpdateController.swift` for the app side and
+and relaunches. See `Ketto/App/UpdateController.swift` for the app side and
 `.github/workflows/release.yml` for the CI side.
 
 ## One-time setup
@@ -64,7 +64,7 @@ Both are required.
 It creates the key pair (private half into your login Keychain), and prints exactly what to
 do with each half:
 
-- the **public** key replaces `SPARKLE_PUBLIC_KEY_NOT_SET` in `Recordito/Info.plist` under
+- the **public** key replaces `SPARKLE_PUBLIC_KEY_NOT_SET` in `Ketto/Info.plist` under
   `SUPublicEDKey`, and gets committed;
 - the **private** key goes into the repository secret `SPARKLE_PRIVATE_KEY`.
 
@@ -82,7 +82,7 @@ refuses to publish such a build at all.
 Merge to `main`. That is the whole procedure.
 
 - **Patch** (the default): the version is the latest `v*` tag with its patch bumped.
-- **Minor or major**: raise `MARKETING_VERSION` in `Recordito.xcodeproj/project.pbxproj`
+- **Minor or major**: raise `MARKETING_VERSION` in `Ketto.xcodeproj/project.pbxproj`
   in your own commit. A committed version higher than the latest tag is used verbatim.
 - **Manual**: run the `release` workflow from the Actions tab (`workflow_dispatch`).
 
@@ -99,7 +99,7 @@ one number to reason about, not two.
 - **Every release after that** installs itself. Sparkle checks daily in the background,
   downloads, and applies the update the next time the app quits
   (`SUEnableAutomaticChecks` and `SUAutomaticallyUpdate` are both on by default in
-  `Info.plist`). **Check for Updates…** in the Recordito menu, or the button in the top
+  `Info.plist`). **Check for Updates…** in the Ketto menu, or the button in the top
   right of the recorder, does it immediately instead.
 - **Nothing appears during a recording.** `AppModel` hides every app window while capturing
   so it stays out of the video, and Sparkle is held to the same rule through its gentle
@@ -130,7 +130,7 @@ this is not Gatekeeper. Check the dSYM zip from that release against the crash r
 **A golden-frame test fails only on CI.** `GoldenFrameTests` compares rendered Metal
 output against committed PNGs within a tight tolerance, and the runner's virtualised GPU is
 not the machine the references were recorded on. If a failure reproduces nowhere else,
-widen the tolerance in `RecorditoTests/GoldenFrameTests.swift` rather than re-recording the
+widen the tolerance in `KettoTests/GoldenFrameTests.swift` rather than re-recording the
 references from CI — a reference recorded on runner hardware would then fail on every
 developer's Mac. Do not skip the test: it is the only thing standing between a renderer
 regression and a release.
@@ -143,10 +143,10 @@ to fix it: export the existing private key with `generate_keys -x` and correct t
 
 ```bash
 # The download is signed by you, notarized, and carries its ticket offline.
-codesign --verify --deep --strict --verbose=2 /Applications/Recordito.app
-xcrun stapler validate /Applications/Recordito.app
-spctl --assess --type execute --verbose=2 /Applications/Recordito.app
+codesign --verify --deep --strict --verbose=2 /Applications/Ketto.app
+xcrun stapler validate /Applications/Ketto.app
+spctl --assess --type execute --verbose=2 /Applications/Ketto.app
 
 # The feed the app polls, and the signature it will check.
-curl -sL https://github.com/boat-builder/recordito/releases/latest/download/appcast.xml
+curl -sL https://github.com/boat-builder/ketto/releases/latest/download/appcast.xml
 ```

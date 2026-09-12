@@ -1,4 +1,4 @@
-# Recordito
+# Ketto
 
 A macOS screen recorder that produces polished videos automatically — smooth cursor
 motion, well-timed zooms into the action, and attractive framing, with no manual editing.
@@ -37,7 +37,7 @@ almost every task needs one slice of it, not the whole thing.
 |---|---|
 | Why the stack is what it is | §2 Stack decision |
 | How the pipeline fits together, and the four invariants not to break | §3 Architecture |
-| `events.json`, `edit.json`, `.recordito` schemas | §4 Data formats |
+| `events.json`, `edit.json`, `.ketto` schemas | §4 Data formats |
 | Auto-zoom, cursor smoothing, cursor rendering | §5 Core algorithms |
 | **What to build next** — scope and acceptance criteria per milestone | §6 Milestones |
 | Permissions, performance targets, testing strategy | §7 Cross-cutting concerns |
@@ -50,11 +50,11 @@ acceptance criteria. To implement a slice, read §6 for that milestone plus whic
 ## Build and run
 
 Requires macOS 14+ and Xcode 16+. The project uses synchronized folder groups, so every
-file under `Recordito/` and `RecorditoTests/` is in the build automatically.
+file under `Ketto/` and `KettoTests/` is in the build automatically.
 
 The one external dependency is [Sparkle](https://github.com/sparkle-project/Sparkle),
 resolved by Swift Package Manager on the first build and pinned in
-`Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
+`Ketto.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
 
 **On Xcode 26+, install the Metal toolchain first** — Apple unbundled it, and this project
 compiles `Render/Shaders.metal`, so without it every build fails with `cannot execute tool
@@ -65,10 +65,10 @@ xcodebuild -downloadComponent MetalToolchain
 ```
 
 ```bash
-xcodebuild build -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64'
+xcodebuild build -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-Or open `Recordito.xcodeproj` in Xcode and run the `Recordito` scheme. Signing is ad hoc
+Or open `Ketto.xcodeproj` in Xcode and run the `Ketto` scheme. Signing is ad hoc
 with no team, and macOS keys Screen Recording permission to the code signature, so each
 rebuild can re-prompt — set your team in the target's Signing settings for a stable
 identity.
@@ -76,19 +76,19 @@ identity.
 ## Tests
 
 ```bash
-xcodebuild test -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64'
+xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
 47 tests covering the document schemas and bundle I/O, auto-zoom, cursor smoothing, the
 camera path, frame composition, audio alignment, the renderer (golden-frame comparisons
 against committed PNGs) and the export pipeline. None of it needs a display, permissions
 or a capture. Two opt-in throughput benchmarks are skipped by default — see
-`RecorditoTests/ExportThroughputTests.swift` for how to run them.
+`KettoTests/ExportThroughputTests.swift` for how to run them.
 
 Re-record the golden frames after an intentional renderer change:
 
 ```bash
-TEST_RUNNER_RECORDITO_UPDATE_GOLDEN=1 xcodebuild test -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -only-testing:RecorditoTests/GoldenFrameTests
+TEST_RUNNER_KETTO_UPDATE_GOLDEN=1 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64' -only-testing:KettoTests/GoldenFrameTests
 ```
 
 ## Using it
@@ -100,7 +100,7 @@ runs. On Stop the project opens in the editor — live preview left, inspector r
 intensity, motion blur). Space plays, arrow keys step a frame, edits autosave. Export…
 (⌘E) renders an MP4 at 1080p/1440p/4K and 30/60 fps.
 
-Projects are `.recordito` packages in `~/Movies/Recordito`, holding the untouched screen
+Projects are `.ketto` packages in `~/Movies/Ketto`, holding the untouched screen
 recording (cursor not baked in), microphone and system audio as separate tracks, the event
 track, and every editing decision. Source media is never rewritten.
 
@@ -112,12 +112,12 @@ for new installs plus a signed archive and a Sparkle `appcast.xml` for everyone 
 running it. The latest build is always at
 
 ```
-https://github.com/boat-builder/recordito/releases/latest/download/Recordito-macos.dmg
+https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg
 ```
 
 Installed copies update themselves: Sparkle checks the feed daily, verifies the download
 against the EdDSA public key in `Info.plist`, swaps the bundle in place and relaunches.
-**Check for Updates…** in the Recordito menu, or the button in the top right of the
+**Check for Updates…** in the Ketto menu, or the button in the top right of the
 recorder, does it on demand. Nothing is ever shown during a recording — a pending update
 waits as a badge rather than opening a window that would land in the video.
 
@@ -128,7 +128,7 @@ Two workflows and two docs cover the whole of it:
 | `.github/workflows/ci.yml` | PR gate: build + the 47 unit tests |
 | `.github/workflows/release.yml` | test → version bump + tag → signed, notarized release |
 | [docs/RELEASING.md](docs/RELEASING.md) | The seven secrets, the one-time key setup, and how to recover a failed release |
-| `Recordito/App/UpdateController.swift` | The app side of updates |
+| `Ketto/App/UpdateController.swift` | The app side of updates |
 
 A fresh clone builds and runs with updates simply switched off: `SUPublicEDKey` in
 `Info.plist` is a placeholder until `Scripts/generate-sparkle-keys.sh` is run once, and the

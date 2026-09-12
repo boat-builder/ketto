@@ -21,6 +21,11 @@ final class AppModel {
     var isExportSheetPresented = false
     /// Statistics of the most recent recording, shown in the editor's status line.
     private(set) var lastRecordingStatistics: RecordingStatistics?
+    /// The bundle `lastRecordingStatistics` describe, so the editor only shows them for that project.
+    private(set) var lastRecordedBundle: RecordingBundle?
+    /// The floating camera bubble. The recorder shows it while the camera is switched on; it stays through the
+    /// countdown and the recording, showing the camera as it is being recorded.
+    let cameraBubble = CameraBubbleController()
     /// Bumped whenever the project library may have changed so the setup view refreshes its list.
     private(set) var libraryRevision = 0
 
@@ -87,26 +92,44 @@ final class AppModel {
         phase = .countdown(3)
         countdownTask = Task { [weak self] in
             guard let self else { return }
+            // The camera warms up during the countdown, so its track starts with the first screen frame; the
+            // bubble shows the recording's own camera as soon as it runs.
+            let bubble = self.cameraBubble
+            let preparation = Task {
+                try await session.prepare()
+                if let capture = session.cameraPreviewSession { bubble.attach(capture) }
+            }
             for remaining in stride(from: 3, through: 1, by: -1) {
                 self.phase = .countdown(remaining)
                 do {
                     try await Task.sleep(for: .seconds(1))
                 } catch {
-                    self.abortRecording(message: nil)
+                    await self.abandonCountdown(session, preparation: preparation)
                     return
                 }
             }
             guard !Task.isCancelled else {
-                self.abortRecording(message: nil)
+                await self.abandonCountdown(session, preparation: preparation)
                 return
             }
             do {
+                try await preparation.value
                 try await session.start()
                 self.phase = .recording(session)
             } catch {
+                await session.cancelPreparation()
+                self.cameraBubble.detachRecording()
                 self.abortRecording(message: error.localizedDescription)
             }
         }
+    }
+
+    /// The countdown was cancelled: let the camera warm-up finish, then release it and go back to the recorder.
+    private func abandonCountdown(_ session: RecordingSession, preparation: Task<Void, Error>) async {
+        _ = await preparation.result
+        await session.cancelPreparation()
+        cameraBubble.detachRecording()
+        abortRecording(message: nil)
     }
 
     /// Cancels a countdown before capture starts.
@@ -128,17 +151,22 @@ final class AppModel {
     /// Stops capture, finalises the bundle and opens it in the editor.
     func stopRecording() {
         guard case .recording(let session) = phase else { return }
+        // Where the bubble was left is where the camera overlay starts out in the edit.
+        session.cameraPlacement = cameraBubble.placement(in: session.configuration.source.frame)
         phase = .finishing
         Task { [weak self] in
             guard let self else { return }
             do {
                 let bundle = try await session.stop()
+                self.cameraBubble.detachRecording()
                 self.lastRecordingStatistics = session.statistics
+                self.lastRecordedBundle = bundle
                 self.libraryRevision += 1
                 self.dismissHUD()
                 self.showMainWindows()
                 self.openProject(bundle: bundle)
             } catch {
+                self.cameraBubble.detachRecording()
                 self.dismissHUD()
                 self.showMainWindows()
                 self.phase = .setup
@@ -161,6 +189,7 @@ final class AppModel {
         do {
             let session = try ProjectSession(bundle: bundle)
             closeCurrentProject()
+            cameraBubble.hide()
             phase = .editing(session)
         } catch {
             if case .finishing = phase { phase = .setup }
@@ -267,7 +296,8 @@ final class AppModel {
 
     private func hideMainWindows() {
         updates?.setDeferred(true)
-        hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible && !($0 is RecordHUDPanel) }
+        // The HUD and the camera bubble are meant to stay: neither is ever captured.
+        hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible && !($0 is RecordHUDPanel) && !($0 is CameraBubblePanel) }
         for window in hiddenWindows {
             window.orderOut(nil)
         }
@@ -280,7 +310,7 @@ final class AppModel {
         for window in windows {
             window.makeKeyAndOrderFront(nil)
         }
-        if windows.isEmpty, let window = NSApplication.shared.windows.first(where: { !($0 is RecordHUDPanel) && $0.canBecomeMain }) {
+        if windows.isEmpty, let window = NSApplication.shared.windows.first(where: { !($0 is RecordHUDPanel) && !($0 is CameraBubblePanel) && $0.canBecomeMain }) {
             window.makeKeyAndOrderFront(nil)
         }
         NSApplication.shared.activate()

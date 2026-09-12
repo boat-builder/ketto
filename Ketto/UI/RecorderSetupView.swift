@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 import Combine
 
 /// The recorder: permission state, what to capture (a display, a window or a region), audio, camera and
@@ -32,6 +33,7 @@ struct RecorderSetupView: View {
     @State private var selectedMicrophoneID: String = ""
     @State private var cameras: [CameraDevice] = []
     @State private var selectedCameraID: String = ""
+    @State private var cameraAccess = CapturePermissions.cameraStatus
     @State private var screenRecordingGranted = CapturePermissions.screenRecordingGranted
     @State private var accessibilityTrusted = CapturePermissions.accessibilityTrusted
     @State private var recentProjects: [RecordingBundle] = []
@@ -39,6 +41,7 @@ struct RecorderSetupView: View {
     @AppStorage("recordMicrophone") private var recordMicrophone = true
     @AppStorage("recordSystemAudio") private var recordSystemAudio = true
     @AppStorage("recordCamera") private var recordCamera = false
+    @AppStorage("cameraBubbleSize") private var cameraBubbleSize = CameraBubbleController.defaultSizeFraction
     @AppStorage("captureKeystrokes") private var captureKeystrokes = false
     @AppStorage("captureAllKeystrokes") private var captureAllKeystrokes = false
     @AppStorage("hideDesktopIcons") private var hideDesktopIcons = false
@@ -100,7 +103,12 @@ struct RecorderSetupView: View {
         }
         .onChange(of: captureModeRaw) { _, _ in
             if captureMode == .window { refreshWindows() }
+            syncCameraBubble()
         }
+        .onChange(of: selectedCameraID) { _, _ in syncCameraBubble() }
+        .onChange(of: cameraBubbleSize) { _, _ in syncCameraBubble() }
+        .onChange(of: selectedDisplayID) { _, _ in syncCameraBubble() }
+        .onChange(of: selectedWindowID) { _, _ in syncCameraBubble() }
     }
 
     // MARK: - Sections
@@ -277,20 +285,25 @@ struct RecorderSetupView: View {
                 }
                 GridRow {
                     Text("Camera")
-                    HStack(spacing: 12) {
-                        Toggle("Record camera", isOn: $recordCamera)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Toggle("Record camera", isOn: cameraToggle)
+                                .labelsHidden()
+                            Picker("Camera", selection: $selectedCameraID) {
+                                ForEach(cameras) { device in
+                                    Text(device.isDefault ? "\(device.name) (Default)" : device.name).tag(device.id)
+                                }
+                            }
                             .labelsHidden()
-                        Picker("Camera", selection: $selectedCameraID) {
-                            ForEach(cameras) { device in
-                                Text(device.isDefault ? "\(device.name) (Default)" : device.name).tag(device.id)
+                            .disabled(!recordCamera || cameras.isEmpty)
+                            .frame(maxWidth: 300, alignment: .leading)
+                            if cameras.isEmpty {
+                                Text("No camera found")
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                        .labelsHidden()
-                        .disabled(!recordCamera || cameras.isEmpty)
-                        .frame(maxWidth: 300, alignment: .leading)
-                        if cameras.isEmpty {
-                            Text("No camera found")
-                                .foregroundStyle(.secondary)
+                        if recordCamera {
+                            cameraStatus
                         }
                     }
                 }
@@ -320,6 +333,57 @@ struct RecorderSetupView: View {
             }
             .padding(8)
         }
+    }
+
+    /// Under the camera row: the bubble's size and what it does, or why the camera cannot be used.
+    @ViewBuilder
+    private var cameraStatus: some View {
+        switch cameraAccess {
+        case .authorized:
+            if !cameras.isEmpty {
+                HStack(spacing: 10) {
+                    Text("Bubble size")
+                        .foregroundStyle(.secondary)
+                    Slider(value: $cameraBubbleSize, in: CameraBubbleController.sizeRange)
+                        .frame(width: 160)
+                    Text("\(Int((cameraBubbleSize * 100).rounded())) %")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .controlSize(.small)
+                Text("Your camera floats over the display as the bubble it becomes in the video. Drag it wherever it is least in the way — it is never captured — and the bubble starts out in the edit where you left it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .denied, .restricted:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Camera access was denied, so the recording will not include the camera. Enable Ketto under System Settings → Privacy & Security → Camera.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open System Settings") { CapturePermissions.openCameraSettings() }
+                    .controlSize(.small)
+            }
+        case .notDetermined:
+            Text("Ketto is asking for camera access…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        @unknown default:
+            EmptyView()
+        }
+    }
+
+    /// Switching the camera on asks for access right away (the moment the feature is first used) and brings
+    /// up the floating bubble; switching it off takes the bubble down.
+    private var cameraToggle: Binding<Bool> {
+        Binding(
+            get: { recordCamera },
+            set: { enabled in
+                recordCamera = enabled
+                syncCameraBubble()
+            }
+        )
     }
 
     private var keystrokesToggle: Binding<Bool> {
@@ -410,17 +474,46 @@ struct RecorderSetupView: View {
     private func refresh() {
         screenRecordingGranted = CapturePermissions.screenRecordingGranted
         accessibilityTrusted = CapturePermissions.accessibilityTrusted
+        cameraAccess = CapturePermissions.cameraStatus
         refreshDisplays()
         microphones = AudioInputDevice.available()
         if !microphones.contains(where: { $0.id == selectedMicrophoneID }) {
             selectedMicrophoneID = microphones.first(where: \.isDefault)?.id ?? microphones.first?.id ?? ""
         }
+        refreshCameras()
+        recentProjects = ProjectLibrary.recentProjects()
+        if captureMode == .window { refreshWindows() }
+        syncCameraBubble()
+    }
+
+    private func refreshCameras() {
         cameras = CameraDevice.available()
         if !cameras.contains(where: { $0.id == selectedCameraID }) {
             selectedCameraID = cameras.first(where: \.isDefault)?.id ?? cameras.first?.id ?? ""
         }
-        recentProjects = ProjectLibrary.recentProjects()
-        if captureMode == .window { refreshWindows() }
+    }
+
+    /// Keeps the floating camera bubble in step with the recorder: shown on the display that will be recorded,
+    /// from the chosen camera, at the chosen size, whenever the camera is on and usable; hidden otherwise.
+    /// Asks for camera access the first time the camera is switched on.
+    private func syncCameraBubble() {
+        guard recordCamera else {
+            model.cameraBubble.hide()
+            return
+        }
+        Task {
+            if cameraAccess == .notDetermined {
+                _ = await CapturePermissions.requestCamera()
+                cameraAccess = CapturePermissions.cameraStatus
+                refreshCameras()
+            }
+            guard recordCamera else { return }
+            if cameraAccess == .authorized, !cameras.isEmpty, let display = source?.display ?? selectedDisplay {
+                model.cameraBubble.show(on: display, deviceID: selectedCameraID.isEmpty ? nil : selectedCameraID, sizeFraction: cameraBubbleSize)
+            } else {
+                model.cameraBubble.hide()
+            }
+        }
     }
 
     private func refreshDisplays() {
@@ -479,12 +572,17 @@ struct RecorderSetupView: View {
             recordMicrophone: recordMicrophone && !microphones.isEmpty,
             microphoneDeviceID: selectedMicrophoneID.isEmpty ? nil : selectedMicrophoneID,
             recordSystemAudio: recordSystemAudio,
-            recordCamera: recordCamera && !cameras.isEmpty,
+            recordCamera: recordCamera && cameraAccess == .authorized && !cameras.isEmpty,
             cameraDeviceID: selectedCameraID.isEmpty ? nil : selectedCameraID,
             keystrokes: keystrokes,
             hideDesktopIcons: hideDesktopIcons
         )
-        model.startRecording(configuration: configuration)
+        Task {
+            // The bubble's preview lets go of the camera so the recording's own capture session can take it; the
+            // bubble comes back with the live recording during the countdown.
+            await model.cameraBubble.releaseCamera()
+            model.startRecording(configuration: configuration)
+        }
     }
 
     private func label(for display: CaptureDisplay) -> String {

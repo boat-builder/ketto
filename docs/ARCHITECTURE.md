@@ -130,6 +130,10 @@ Worth knowing before touching any of it:
 - The Edit menu replaces the standard Undo/Redo group (the session owns the
   stacks) and binds ⌫, ⌘B, ⌘K, ⇧⌘M and ⇧⌘C. These bare-key equivalents
   would also fire inside a text field; the editor has none.
+- The inspector's Camera section is always there: without a camera track it
+  says how to get one, with one it offers shape, size, aspect and corner radius
+  (rounded shape), position (corner presets, Horizontal / Vertical sliders, or
+  dragging in the preview), border, shadow, mirror and cursor dodging.
 
 ## Capture
 
@@ -142,6 +146,31 @@ Worth knowing before touching any of it:
   overlap of the first buffer after a pause; `EventRecorder.makeDocument`
   drops paused events; `CameraCapture` writes `camera.mov` directly in
   recording time (session starts at zero, frames at their recording time).
+- The camera starts during the countdown (`RecordingSession.prepare()`), so its
+  warm-up — typically a second or two — is over by the first screen frame and
+  the track begins with the recording; frames before the clock has a base are
+  dropped. `CameraCapture` runs `startRunning()` / `stopRunning()` (both block)
+  on a session queue separate from the frame queue, observes the session's
+  runtime-error notification, and `stop()` returns an `Outcome`: frames
+  written, frames the device delivered, the first frame's recording time and
+  any error. `RecordingSession.cameraWarning(for:)` turns that into the status
+  line under the editor's timeline when the track is missing or starts more
+  than 0.5 s late, so a camera that failed is never silent. A new recording with
+  a camera track starts out `mirrored` (the bubble showed a mirror image) and
+  placed where the floating bubble sat (`CameraPlacement.overlay(from:layout:)`
+  maps the bubble's centre and height, normalised in the captured area, onto
+  the default canvas).
+- The floating camera bubble (`CameraBubbleController`, `CameraBubblePanel`) is
+  a borderless, non-activating floating panel on every Space, movable by
+  dragging, holding an `AVCaptureVideoPreviewLayer` (mirrored) clipped to a
+  circle with the overlay's default border and shadow. Before a recording it
+  shows its own `CameraPreviewSource` session; `releaseCamera()` stops that
+  right before the countdown and `attach(_:)` swaps in the recording's session
+  once `prepare()` created it, so the device is never open twice. It is left
+  alone by `AppModel.hideMainWindows()` (like the HUD), excluded from the
+  capture like every Ketto window, and `EventRecorder` drops clicks on it. Its
+  position is kept in `UserDefaults`, normalised to the display, and clamped
+  back onto the display when shown.
 - `CaptureSource` is a display, a window or a region (points, Core Graphics
   coordinates). Window capture uses `SCContentFilter(desktopIndependentWindow:)`
   and `EventRecorder` re-reads the window's frame every 0.5 s so event
@@ -276,6 +305,14 @@ annotations in system frameworks rather than defects here, and all three are del
 - Live preview: if the first frame never appears, check that
   `AVPlayerItemVideoOutput.hasNewPixelBuffer` starts returning true after the item is
   ready; `PreviewPlayer.pollFrame` re-arms both outputs every 60 misses.
+- The camera bubble: if it ever shows up in a recording, check that `ScreenCaptureEngine`
+  still excludes Ketto's own windows, and — in `hideDesktopIcons` mode, where the
+  exclusion is a window list taken when the stream starts — that the panel already existed
+  then (it is created when the camera is switched on in the recorder). If the bubble goes
+  black during the countdown and stays black, `RecordingSession.prepare()` threw or the
+  attach in `AppModel.startRecording` never ran; if the recording's camera reports the
+  device busy, `CameraBubbleController.releaseCamera()` was not awaited before the
+  countdown started.
 - Camera sync: both players are started at one host time. If the camera ever drifts,
   check that `automaticallyWaitsToMinimizeStalling` is still false on both (it is required
   by `setRate(_:time:atHostTime:)`) and that the camera composition was built from the

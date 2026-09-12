@@ -44,4 +44,11 @@ enum DisplayEnumerator {
         let mainHeight = NSScreen.screens.first?.frame.height ?? 0
         return CGPoint(x: point.x, y: mainHeight - point.y)
     }
+
+    /// The inverse of `cgPoint(fromCocoa:)`: Core Graphics screen coordinates to AppKit's.
+    @MainActor
+    static func cocoaPoint(fromCG point: CGPoint) -> CGPoint {
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: point.x, y: mainHeight - point.y)
+    }
 }

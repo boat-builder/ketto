@@ -126,7 +126,7 @@ final class ExportPipelineTests: XCTestCase {
         XCTAssertGreaterThan(social.videoBitrate, Int(Double(web.videoBitrate) * 0.7), "half the frames at 1.5× quality")
         XCTAssertEqual(ExportSettings(width: 640, height: 360, fps: 30, container: .mp4, codec: .proRes422).codec, .h264, "ProRes only goes in a MOV")
         XCTAssertFalse(ExportCodec.hevc.isAvailable(in: .gif))
-        XCTAssertEqual(ExportSettings(width: 640, height: 360, fps: 30, codec: .hevc).videoBitrate, Int(640 * 360 * 30 * 0.065))
+        XCTAssertEqual(Double(ExportSettings(width: 1920, height: 1080, fps: 60, codec: .hevc).videoBitrate), 1920 * 1080 * 60 * 0.065, accuracy: 1)
         XCTAssertGreaterThan(gif.estimatedFileSize(duration: 10), 0)
     }
 

@@ -38,6 +38,21 @@ final class PlaybackTests: XCTestCase {
         try file.write(from: buffer)
     }
 
+    /// RMS level of the first channel over a time range of a file.
+    private func rms(of url: URL, from start: Double, to end: Double) throws -> Float {
+        let file = try AVAudioFile(forReading: url)
+        let sampleRate = file.processingFormat.sampleRate
+        let first = Int(start * sampleRate)
+        let count = max(0, Int(end * sampleRate) - first)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(count)))
+        file.framePosition = AVAudioFramePosition(first)
+        try file.read(into: buffer, frameCount: AVAudioFrameCount(count))
+        let data = try XCTUnwrap(buffer.floatChannelData)
+        var sum: Double = 0
+        for i in 0..<Int(buffer.frameLength) { sum += Double(data[0][i]) * Double(data[0][i]) }
+        return Float((sum / Double(max(Int(buffer.frameLength), 1))).squareRoot())
+    }
+
     func testCompositionFollowsTheEditTimeline() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -138,8 +153,9 @@ final class PlaybackTests: XCTestCase {
         let original = try WaveformLoader.load(url: bundle.micURL, bucketsPerSecond: 10)
         let processed = try WaveformLoader.load(url: url, bucketsPerSecond: 10)
         XCTAssertEqual(processed.peaks.count, original.peaks.count, "same length as the source")
-        // The quiet half is noise only and comes down; the voiced half is brought up towards the target level.
-        XCTAssertLessThan(processed.peak(from: 0.3, to: 1.2), original.peak(from: 0.3, to: 1.2) * 0.5)
+        // The quiet half is noise only and comes down (in level — a spectral gate lets the odd loud bin
+        // through, so peaks say little); the voiced half is brought up towards the target level.
+        XCTAssertLessThan(try rms(of: url, from: 0.3, to: 1.2), try rms(of: bundle.micURL, from: 0.3, to: 1.2) * 0.4, "at least 8 dB of noise reduction")
         XCTAssertGreaterThan(processed.peak(from: 2, to: 2.9), original.peak(from: 2, to: 2.9) * 1.3)
         XCTAssertLessThanOrEqual(processed.peak(from: 0, to: 3), 1)
 

@@ -40,11 +40,12 @@ final class CaptureTests: XCTestCase {
         var pixelBuffer: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 16, 8, kCVPixelFormatType_32BGRA, nil, &pixelBuffer), kCVReturnSuccess)
         let image = try XCTUnwrap(pixelBuffer)
-        var description: CMVideoFormatDescription?
-        XCTAssertEqual(CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: image, formatDescriptionOut: &description), noErr)
+        var created: CMVideoFormatDescription?
+        XCTAssertEqual(CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: image, formatDescriptionOut: &created), noErr)
+        let description = try XCTUnwrap(created)
         var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 60), presentationTimeStamp: CMTime(seconds: 12, preferredTimescale: 600), decodeTimeStamp: .invalid)
         var sample: CMSampleBuffer?
-        XCTAssertEqual(CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: image, formatDescription: try XCTUnwrap(description), sampleTiming: &timing, sampleBufferOut: &sample), noErr)
+        XCTAssertEqual(CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: image, formatDescription: description, sampleTiming: &timing, sampleBufferOut: &sample), noErr)
         let original = try XCTUnwrap(sample)
 
         let retimed = try XCTUnwrap(VideoTrackWriter.retimed(original, to: CMTime(seconds: 7, preferredTimescale: 600)))
@@ -73,7 +74,7 @@ final class CaptureTests: XCTestCase {
         XCTAssertEqual(CaptureSource.window(window).display, side)
         XCTAssertEqual(CaptureSource.window(window).pixelSize.width, 800)
         XCTAssertEqual(CaptureSource.display(for: window.frame, among: [main, side]), side)
-        XCTAssertEqual(CaptureSource.display(for: CGRect(x: 1700, y: 0, width: 100, height: 100), among: [main, side]), main, "mostly on the main display")
+        XCTAssertEqual(CaptureSource.display(for: CGRect(x: 1650, y: 0, width: 100, height: 100), among: [main, side]), main, "78 of its 100 points lie on the main display")
         XCTAssertEqual(CaptureSource.pixelSize(points: CGSize(width: 101, height: 51), scale: 1).width, 100, "even sizes only")
         XCTAssertEqual(window.displayName, "Notes — Notes")
     }

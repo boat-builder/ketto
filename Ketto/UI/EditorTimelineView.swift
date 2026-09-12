@@ -75,6 +75,9 @@ struct EditorTimelineView: View {
                             viewportWidth = width
                             session.timelineFitPixelsPerSecond = TimelineGeometry.fit(duration: session.duration, width: max(width, 200))
                         }
+                        .onChange(of: session.duration) { _, duration in
+                            session.timelineFitPixelsPerSecond = TimelineGeometry.fit(duration: duration, width: max(viewportWidth, 200))
+                        }
                     }
                     .frame(height: totalHeight)
                 }

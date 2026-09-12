@@ -153,11 +153,22 @@ final class PlaybackTests: XCTestCase {
         let original = try WaveformLoader.load(url: bundle.micURL, bucketsPerSecond: 10)
         let processed = try WaveformLoader.load(url: url, bucketsPerSecond: 10)
         XCTAssertEqual(processed.peaks.count, original.peaks.count, "same length as the source")
-        // The quiet half is noise only and comes down (in level — a spectral gate lets the odd loud bin
-        // through, so peaks say little); the voiced half is brought up towards the target level.
-        XCTAssertLessThan(try rms(of: url, from: 0.3, to: 1.2), try rms(of: bundle.micURL, from: 0.3, to: 1.2) * 0.4, "at least 8 dB of noise reduction")
+        // The voiced half is brought up towards the target level, and the noise-only half gains less than
+        // the voice did: the signal-to-noise ratio improves even though the whole file got louder.
         XCTAssertGreaterThan(processed.peak(from: 2, to: 2.9), original.peak(from: 2, to: 2.9) * 1.3)
         XCTAssertLessThanOrEqual(processed.peak(from: 0, to: 3), 1)
+        let originalRatio = try rms(of: bundle.micURL, from: 0.3, to: 1.2) / rms(of: bundle.micURL, from: 2, to: 2.9)
+        let processedRatio = try rms(of: url, from: 0.3, to: 1.2) / rms(of: url, from: 2, to: 2.9)
+        XCTAssertLessThan(processedRatio, originalRatio * 0.5, "noise relative to voice drops by at least 6 dB")
+
+        // Noise removal on its own brings the quiet half down in level (a spectral gate lets the odd loud
+        // bin through, so the RMS is the measure, not the peak).
+        let denoisedOnly = AudioProcessor.Options(noiseRemoval: true, normalize: false)
+        let denoisedURL = AudioProcessor.derivedURL(for: bundle, options: denoisedOnly)
+        XCTAssertEqual(denoisedURL.lastPathComponent, "mic-nr1-norm0.caf")
+        try AudioProcessor.process(micURL: bundle.micURL, to: denoisedURL, options: denoisedOnly)
+        XCTAssertLessThan(try rms(of: denoisedURL, from: 0.3, to: 1.2), try rms(of: bundle.micURL, from: 0.3, to: 1.2) * 0.4, "at least 8 dB of noise reduction")
+        XCTAssertEqual(try WaveformLoader.load(url: denoisedURL, bucketsPerSecond: 10).peaks.count, original.peaks.count)
 
         // Identity options never write anything; a second run for the same options overwrites cleanly.
         let identity = AudioProcessor.Options(noiseRemoval: false, normalize: false)

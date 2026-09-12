@@ -62,6 +62,41 @@ Worth knowing before touching any of it:
   (`terminateLater`). `application(_:open:)` opens `.ketto` packages from
   the Finder; ⌘N / ⌘O / ⌘E are in the File menu.
 
+## Sharing
+
+- The backend is the user's own: `Resources/CloudflareBackend/worker.js` in front of a
+  private R2 bucket, deployed by `setup.sh` from the same folder. `ShareSetupBundle`
+  writes both, plus `wrangler.json`, `config.env` and `secret.txt` (0600), to
+  `~/Library/Application Support/Ketto/Cloudflare/`. `ShareBackend.startWatching()` then
+  polls `/api/status` every 3 s with a 15-minute budget, resumed whenever the settings
+  page appears, and moves the token into the Keychain the moment the Worker answers. The
+  address lives in `UserDefaults` (`shareBackendURL`); the Keychain is only read once an
+  address exists, so nobody who never set up sharing sees a Keychain prompt.
+- `worker.js` is the contract. `API_VERSION` there must equal
+  `ShareBackendClient.apiVersion`: bump both when a route changes shape and the app
+  refuses an older backend with a message to re-run setup. `PART_SIZE` is the Worker's to
+  choose; the app uses whatever `POST /api/uploads` returns.
+- Keys are `videos/<26 base32 chars>.mp4`, title and filename ride in custom metadata,
+  and `expires` is computed as upload time plus three days. The bucket's lifecycle rule
+  does the actual deleting, in a daily sweep, hence "about three days" everywhere in the
+  UI.
+- `CloudflareShareDestination` reads one part at a time (bounded memory), retries a part
+  three times with backoff on transport errors and 5xx only, aborts the multipart upload
+  from a detached task on any other failure or on cancellation, and throttles progress to
+  about 200 reports per upload, never going backwards.
+- Range requests: R2 fills in `object.range` even for a plain GET and quietly serves the
+  whole object for a range it cannot satisfy, so the Worker parses the `Range` header
+  itself to decide between 200, 206 and 416, and trusts `object.range` only for the
+  `Content-Range` numbers.
+- Invariants: the bucket is never public; the token exists only in the Worker secret, the
+  Keychain, and `secret.txt` for the minutes between generating the command and the
+  Worker answering; the address must be HTTPS. Plain HTTP is accepted for `localhost`
+  only, which `NSAllowsLocalNetworking` in `Info.plist` permits, for `wrangler dev`.
+- `WorkerTests/` runs the Worker inside the real runtime (`npm test`) and is where
+  `npx wrangler dev` serves it locally. Its `wrangler.jsonc` mirrors the config the app
+  generates; keep the binding name and compatibility date in step with
+  `ShareSetupBundle`.
+
 ## Expected build warnings
 
 Three warnings are expected on Xcode 26.6 / Swift 6.3.3. All three are missing `Sendable`
@@ -130,7 +165,11 @@ annotations in system frameworks rather than defects here, and all three are del
 
 - Hand-written `Ketto.xcodeproj` using Xcode 16+ synchronized folder groups: every
   file under `Ketto/` and `KettoTests/` is picked up automatically. `Info.plist`
-  and the entitlements file are membership exceptions.
+  and the entitlements file are membership exceptions. Non-source files such as
+  `Resources/CloudflareBackend/worker.js` and `setup.sh` are copied flat into
+  `Contents/Resources`, which is where `ShareSetupBundle.resourceURL` looks first.
+  `WorkerTests/` sits outside `Ketto/` on purpose: Xcode would otherwise try to bundle
+  its `node_modules`.
 - `SWIFT_VERSION = 6.0`, `SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated` (classic Swift 6
   semantics; UI classes are annotated `@MainActor` explicitly),
   `SWIFT_STRICT_CONCURRENCY = complete`.

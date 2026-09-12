@@ -50,7 +50,7 @@ struct EditorView: View {
             }
         }
         .sheet(isPresented: $model.isExportSheetPresented) {
-            ExportSheet(session: session)
+            ExportSheet(session: session, share: model.share)
         }
     }
 }

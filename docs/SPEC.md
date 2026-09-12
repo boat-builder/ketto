@@ -96,7 +96,7 @@ elsewhere.
     MTKView preview          VideoToolbox → MP4
                                      ▼
                         ┌─ PublishDestination ───────┐
-                        │ .local  .youtube  .s3 ...  │
+                        │ .local .cloudflare .youtube│
                         └────────────────────────────┘
 ```
 
@@ -128,11 +128,12 @@ protocol PublishDestination {
     var displayName: String { get }
     func authenticate() async throws
     func upload(_ file: URL, metadata: VideoMetadata,
-                progress: @Sendable (Double) -> Void) async throws -> URL
+                progress: @escaping @Sendable (Double) -> Void) async throws -> URL
 }
 ```
 
-v1 ships `LocalFileDestination` only. Everything in v3 slots in behind this.
+v1 ships `LocalFileDestination`; v3 adds `CloudflareShareDestination` behind the same
+protocol, and YouTube will follow the same way.
 
 ### CRITICAL: record with the cursor hidden
 
@@ -320,17 +321,49 @@ editor.
 
 ---
 
-### v3 — Publishing (YouTube / S3 / R2)
+### v3 — Publishing (Cloudflare R2 share links ✅ · YouTube)
 
 **Goal:** stop → upload → shareable unlisted link in the clipboard. Loom-style.
 
-**In scope**
-- `PublishDestination` implementations behind the v1 protocol
-- `S3Destination` — S3 / Cloudflare R2, user-supplied bucket, plus a minimal share page
+**Shipped: share links on the user's own Cloudflare account.** The user runs one command
+(wrangler, logged in to an account that already holds their domain) and every export can
+be shared as `https://<their domain>/v/<id>`, valid for about three days.
+
+How it is put together, and why:
+
+- **One Worker in front of a private R2 bucket.** The app ships the Worker source
+  (`Ketto/Resources/CloudflareBackend/worker.js`) and a setup script. Settings › Sharing
+  writes them to `~/Library/Application Support/Ketto/Cloudflare/` together with a
+  generated `wrangler.json`, `config.env` and a random 256-bit token, and shows the one
+  command to run. The script creates the bucket, adds a lifecycle rule (expire after
+  3 days, abort unfinished multipart uploads after 1 day), deploys the Worker on the
+  user's domain (wrangler creates the DNS record and certificate) and stores the token as
+  a Worker secret. The app polls `https://<domain>/api/status` with the token until the
+  Worker answers, then keeps the token in the Keychain and deletes it from disk.
+- **Uploads go through the Worker as R2 multipart parts** (`POST /api/uploads`, `PUT
+  …/:n`, `POST …/complete`), 32 MiB each: Worker request bodies are capped at 100 MB on
+  Free and Pro plans, and R2 needs equal-sized parts of at least 5 MiB. Presigned URLs
+  were rejected because they need S3 credentials, which wrangler cannot create; calling
+  wrangler at runtime was rejected because it would need Node on every machine and would
+  use the account-wide OAuth session rather than a token scoped to this one purpose.
+- **Only holders of the token can write.** The bucket has no public access and the Worker
+  is its only reader and writer; ids are 128 random bits, so links are unlisted but
+  unguessable. A second Mac joins by pasting the address and token.
+- **The Worker serves the video** (`GET /v/:id` with Range support; `/f/:id` is reserved
+  for the raw file once `/v` becomes an HTML viewer, so links never change) and **lists
+  what is shared** (`GET /api/videos`), which a public bucket could not do.
+- `CloudflareShareDestination` sits behind the v1 `PublishDestination` protocol. The
+  Worker's contract is the header comment of `worker.js`; `WorkerTests/` runs it in the
+  real Workers runtime.
+
+**Not yet:** resuming an upload after an app restart (the multipart state is easy to
+persist; the 1-day abort rule cleans up meanwhile), the HTML viewer page, parallel part
+uploads, and everything YouTube.
+
+**Still in scope**
 - `YouTubeDestination` — OAuth 2.0 + resumable upload, video set to unlisted
 - OAuth token storage in Keychain; token refresh; disconnect/revoke
 - Background upload queue: resumable, survives app restart, app stays usable mid-upload
-- Progress UI; copy-link-on-complete
 
 #### YouTube: read this before planning
 
@@ -360,12 +393,14 @@ editor.
 > The audit is free but runs at Google's pace. It is the long pole on this milestone and
 > it is the one item here that is not code we control. **File it during v1.**
 
-This risk is the main reason publishing is a protocol rather than welded into export: if
-the audit stalls or is refused, `S3Destination` ships and the feature still lands.
+This risk is the main reason publishing is a protocol rather than welded into export: the
+audit can stall or be refused and `CloudflareShareDestination` has already landed the
+feature.
 
 **Acceptance criteria**
-- Upload survives app restart and network interruption
-- Link reaches the clipboard automatically on completion
+- Upload survives app restart and network interruption (R2: network interruption ✅ via
+  per-part retries; restart not yet)
+- Link reaches the clipboard automatically on completion (R2 ✅)
 - Revoking access in Google account settings is handled gracefully, not with a crash
 
 ---
@@ -440,9 +475,11 @@ shareable-link comments and collaboration · Windows and Linux · team accounts.
 1. Distribution: direct download with Developer ID + notarization, or Mac App Store?
    The App Store sandbox has implications for `CGEventTap` and user-supplied S3 buckets —
    decide before v3.
-2. Do we ship our own share-page hosting for `S3Destination`, or hand the user a raw
-   object URL?
+2. ~~Do we ship our own share-page hosting for `S3Destination`, or hand the user a raw
+   object URL?~~ Resolved in v3: the user's own Worker serves the link, today as the raw
+   video with Range support, later as an HTML viewer at the same address with the file
+   moving to `/f/<id>`. Nothing is hosted by us.
 3. Auto-zoom tuning: ship one "intensity" slider, or expose the underlying clustering
    parameters to power users?
 4. Licensing and pricing model — affects whether v3 needs any server-side component at
-   all.
+   all. Sharing needed none: the backend runs on the user's own Cloudflare account.

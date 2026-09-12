@@ -15,6 +15,7 @@ struct RecorderSetupView: View {
     @AppStorage("recordMicrophone") private var recordMicrophone = true
     @AppStorage("recordSystemAudio") private var recordSystemAudio = true
     @AppStorage("recordingFrameRate") private var frameRate = 60
+    @Environment(\.openSettings) private var openSettings
 
     private var selectedDisplay: CaptureDisplay? {
         displays.first { $0.id == selectedDisplayID } ?? displays.first
@@ -29,6 +30,7 @@ struct RecorderSetupView: View {
                 }
                 captureSettings
                 recordRow
+                sharingRow
                 recentProjectsSection
             }
             .padding(28)
@@ -160,6 +162,27 @@ struct RecorderSetupView: View {
                 Text("Recordings are saved to \(ProjectLibrary.defaultDirectory.path).")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// Where share links go, or how to set that up. The sheet after an export offers the same thing.
+    private var sharingRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "link")
+                .foregroundStyle(.secondary)
+            if let connection = model.share?.connection {
+                Text("Share links go to \(connection.displayName).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Button("Manage\u{2026}") { openSettings() }
+                    .controlSize(.small)
+            } else {
+                Text("Share links aren\u{2019}t set up.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Button("Set Up\u{2026}") { openSettings() }
+                    .controlSize(.small)
             }
         }
     }

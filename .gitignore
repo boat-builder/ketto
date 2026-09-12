@@ -64,3 +64,8 @@ client_secret*.json
 *.caf
 
 .env
+
+# Worker test harness (WorkerTests/): dependencies and the local dev token for `wrangler dev`
+WorkerTests/node_modules/
+WorkerTests/.dev.vars
+WorkerTests/.wrangler/

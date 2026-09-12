@@ -1,0 +1,76 @@
+name: ci
+
+# PR gate: the project has to build and its 47 unit tests have to pass before a
+# merge to main, because every merge to main cuts a signed release
+# (.github/workflows/release.yml) and there is no other gate in front of it.
+#
+# None of the tests need a display, a capture permission or a recording — see
+# the Tests section of README.md — so a headless runner is enough. The two
+# throughput benchmarks in RecorditoTests/ExportThroughputTests.swift skip
+# themselves by default; leave them that way, CI hardware says nothing useful
+# about export speed.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build + test
+    # macos-26 is the current GA arm64 image (Xcode 26.6 by default), which is
+    # the toolchain README.md says v1 was verified on.
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # Xcode 26 unbundled the Metal compiler, and Render/Shaders.metal is part
+      # of the app target, so without this every build fails with
+      # `cannot execute tool 'metal'`. ~690 MB, no sudo, and skipped outright on
+      # any image that already ships it.
+      - name: Install the Metal toolchain
+        run: |
+          set -euo pipefail
+          if xcrun metal --version >/dev/null 2>&1; then
+            echo "Metal toolchain already present"
+          else
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun metal --version
+          fi
+
+      - name: Resolve Swift package dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Recordito.xcodeproj \
+            -scheme Recordito
+
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project Recordito.xcodeproj \
+            -scheme Recordito \
+            -destination 'platform=macOS,arch=arm64' \
+            -resultBundlePath "$RUNNER_TEMP/RecorditoTests.xcresult" \
+            | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            ${{ runner.temp }}/RecorditoTests.xcresult
+            ${{ runner.temp }}/xcodebuild.log
+          retention-days: 7
+          if-no-files-found: ignore

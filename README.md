@@ -29,6 +29,7 @@ almost every task needs one slice of it, not the whole thing.
 | `README.md` | ~115 | This index: status, build, test, doc map | Always — start here |
 | [docs/SPEC.md](docs/SPEC.md) | ~450 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~120 | How the shipped v1 code behaves: tuning constants, invariants, expected build warnings | Touching existing engine, render, playback or export code |
+| [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
 
 ### Picking one section out of the spec
 
@@ -50,6 +51,10 @@ acceptance criteria. To implement a slice, read §6 for that milestone plus whic
 
 Requires macOS 14+ and Xcode 16+. The project uses synchronized folder groups, so every
 file under `Recordito/` and `RecorditoTests/` is in the build automatically.
+
+The one external dependency is [Sparkle](https://github.com/sparkle-project/Sparkle),
+resolved by Swift Package Manager on the first build and pinned in
+`Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
 
 **On Xcode 26+, install the Metal toolchain first** — Apple unbundled it, and this project
 compiles `Render/Shaders.metal`, so without it every build fails with `cannot execute tool
@@ -98,6 +103,37 @@ intensity, motion blur). Space plays, arrow keys step a frame, edits autosave. E
 Projects are `.recordito` packages in `~/Movies/Recordito`, holding the untouched screen
 recording (cursor not baked in), microphone and system audio as separate tracks, the event
 track, and every editing decision. Source media is never rewritten.
+
+## Releases and updates
+
+Every push to `main` cuts a release: GitHub Actions builds a universal (Apple Silicon and
+Intel) app, signs it with Developer ID, notarizes and staples it, and publishes a `.dmg`
+for new installs plus a signed archive and a Sparkle `appcast.xml` for everyone already
+running it. The latest build is always at
+
+```
+https://github.com/boat-builder/recordito/releases/latest/download/Recordito-macos.dmg
+```
+
+Installed copies update themselves: Sparkle checks the feed daily, verifies the download
+against the EdDSA public key in `Info.plist`, swaps the bundle in place and relaunches.
+**Check for Updates…** in the Recordito menu, or the button in the top right of the
+recorder, does it on demand. Nothing is ever shown during a recording — a pending update
+waits as a badge rather than opening a window that would land in the video.
+
+Two workflows and two docs cover the whole of it:
+
+| File | What it does |
+|---|---|
+| `.github/workflows/ci.yml` | PR gate: build + the 47 unit tests |
+| `.github/workflows/release.yml` | test → version bump + tag → signed, notarized release |
+| [docs/RELEASING.md](docs/RELEASING.md) | The seven secrets, the one-time key setup, and how to recover a failed release |
+| `Recordito/App/UpdateController.swift` | The app side of updates |
+
+A fresh clone builds and runs with updates simply switched off: `SUPublicEDKey` in
+`Info.plist` is a placeholder until `Scripts/generate-sparkle-keys.sh` is run once, and the
+app skips starting Sparkle rather than complaining about it. The release workflow refuses
+to publish a build that still carries the placeholder.
 
 ## Invariants
 

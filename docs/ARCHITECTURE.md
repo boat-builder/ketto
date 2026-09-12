@@ -82,6 +82,24 @@ annotations in system frameworks rather than defects here, and all three are del
   promotes this to an error, `nonisolated(unsafe)` on the binding is the intended escape
   hatch.
 
+## Updates
+
+- `UpdateController` owns a `SPUStandardUpdaterController` and is started from
+  `applicationDidFinishLaunching`, never from `init`. It refuses to start at all unless
+  `Info.plist` carries both a `SUFeedURL` and a real `SUPublicEDKey`, so a checkout without
+  release keys is quiet rather than broken.
+- Sparkle's own state is not observable by SwiftUI, so every transition worth drawing is
+  mirrored into `UpdateController.phase` from the delegate callbacks. Each callback carries
+  an explicit `@objc(selector)`: they are optional requirements of an Objective-C protocol,
+  where a mismatched Swift name is silently ignored instead of rejected by the compiler.
+- `AppModel.hideMainWindows()` / `showMainWindows()` are the choke point for
+  `setDeferred(_:)`. While deferred, `standardUserDriverShouldHandleShowingScheduledUpdate`
+  returns false, so a scheduled update becomes a badge in the recorder instead of a window
+  in the capture. The check button and the menu item are disabled over the same span.
+- `phase` is also how "the check failed" is distinguished from "no update found" without
+  matching on Sparkle's error codes: `didFinishUpdateCycleFor` only records a failure if
+  neither `didFindValidUpdate` nor `updaterDidNotFindUpdate` moved `phase` first.
+
 ## Things a compiler cannot catch
 
 - Live preview: if the first frame never appears, check that
@@ -112,7 +130,22 @@ annotations in system frameworks rather than defects here, and all three are del
 - `SWIFT_OBJC_BRIDGING_HEADER = Recordito/Render/ShaderTypes.h` shares the uniform struct
   between Swift and Metal.
 - App Sandbox is off (direct-distribution assumption, open question 1 in SPEC). Hardened
-  runtime is on, with the audio-input entitlement for the microphone.
+  runtime is on, with the audio-input entitlement for the microphone. Local builds sign ad
+  hoc with no team; release builds are signed with Developer ID and notarized by
+  `.github/workflows/release.yml`, which overrides `CODE_SIGN_IDENTITY`,
+  `CODE_SIGN_STYLE` and `DEVELOPMENT_TEAM` on the command line rather than committing a
+  team into the project.
+- Sparkle is the only package dependency, linked into the app target and embedded
+  automatically by Xcode. The test target does not link it; it gets
+  `FRAMEWORK_SEARCH_PATHS` and `LD_RUNPATH_SEARCH_PATHS` entries instead, which is all
+  `@testable import Recordito` needs to resolve the Sparkle types `UpdateController`
+  mentions.
+- `MARKETING_VERSION` (`CFBundleShortVersionString`) and `CURRENT_PROJECT_VERSION`
+  (`CFBundleVersion`) are both stamped to the same `X.Y.Z` at release time. Sparkle
+  compares `CFBundleVersion` against the appcast's `sparkle:version`, so keeping the two
+  keys equal makes that a plain dotted-version comparison. Nothing shipped before this
+  scheme, so there is no build carrying the old `CURRENT_PROJECT_VERSION = 1` for it to
+  compare against.
 - The app icon is generated from `recordito-logo.svg` at the repository root. After
   changing the logo, re-run `swift Scripts/make-appicon.swift` from the root: it rewrites
   the ten PNGs and the `Contents.json` in

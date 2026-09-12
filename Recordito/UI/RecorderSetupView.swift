@@ -50,11 +50,15 @@ struct RecorderSetupView: View {
     // MARK: - Sections
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Recordito")
-                .font(.largeTitle.weight(.bold))
-            Text("Record a display. Zooms, cursor smoothing and framing are generated for you.")
-                .foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Recordito")
+                    .font(.largeTitle.weight(.bold))
+                Text("Record a display. Zooms, cursor smoothing and framing are generated for you.")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            UpdateStatusView(updates: model.updates)
         }
     }
 
@@ -230,6 +234,69 @@ struct RecorderSetupView: View {
     private func label(for display: CaptureDisplay) -> String {
         let size = "\(display.pixelWidth) × \(display.pixelHeight)"
         return display.isMain ? "\(display.name) — \(size), main" : "\(display.name) — \(size)"
+    }
+}
+
+/// Version and one-click update, in the corner of the recorder. The button does exactly what the
+/// Recordito menu's **Check for Updates…** does — Sparkle takes over from there, downloading,
+/// verifying and installing the new build and relaunching into it. Renders nothing at all on a
+/// build with no update feed configured (see `UpdateController.isConfigured`).
+struct UpdateStatusView: View {
+    let updates: UpdateController?
+
+    var body: some View {
+        if let updates, updates.isConfigured {
+            VStack(alignment: .trailing, spacing: 4) {
+                control(updates)
+                Text(status(updates))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .help(help(updates))
+        }
+    }
+
+    @ViewBuilder
+    private func control(_ updates: UpdateController) -> some View {
+        switch updates.phase {
+        case .available(let version):
+            Button {
+                updates.checkForUpdates()
+            } label: {
+                Label("Update to v\(version)", systemImage: "arrow.down.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(updates.isDeferred)
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking…")
+                    .foregroundStyle(.secondary)
+            }
+        case .idle, .upToDate, .failed:
+            Button("Check for Updates") { updates.checkForUpdates() }
+                .disabled(updates.isDeferred)
+        }
+    }
+
+    private func status(_ updates: UpdateController) -> String {
+        let version = "v\(updates.currentVersion)"
+        switch updates.phase {
+        case .idle, .checking:
+            return version
+        case .upToDate:
+            return "\(version) · Up to date"
+        case .available:
+            return "\(version) installed"
+        case .failed:
+            return "\(version) · Couldn’t check"
+        }
+    }
+
+    private func help(_ updates: UpdateController) -> String {
+        if case .failed(let message) = updates.phase { return message }
+        return "Recordito \(updates.currentVersion)"
     }
 }
 

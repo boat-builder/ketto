@@ -24,6 +24,11 @@ final class AppModel {
     /// Bumped whenever the project library may have changed so the setup view refreshes its list.
     private(set) var libraryRevision = 0
 
+    /// Set by `AppDelegate` at launch. Sparkle is held off for as long as the app's windows are
+    /// hidden for a capture; see `hideMainWindows()`. Observed rather than ignored because the
+    /// recorder draws the update badge from it, and the assignment can land after the first render.
+    var updates: UpdateController?
+
     @ObservationIgnored private var hud: RecordHUDPanel?
     @ObservationIgnored private var hiddenWindows: [NSWindow] = []
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
@@ -239,6 +244,7 @@ final class AppModel {
     // MARK: - Windows
 
     private func hideMainWindows() {
+        updates?.setDeferred(true)
         hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible && !($0 is RecordHUDPanel) }
         for window in hiddenWindows {
             window.orderOut(nil)
@@ -246,6 +252,7 @@ final class AppModel {
     }
 
     private func showMainWindows() {
+        updates?.setDeferred(false)
         let windows = hiddenWindows
         hiddenWindows = []
         for window in windows {

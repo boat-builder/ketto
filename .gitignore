@@ -28,6 +28,10 @@ xcuserdata/
 .build/
 .swiftpm/
 Package.resolved
+# …except the app's own resolved versions: this is a product, not a library, so the
+# Sparkle version is pinned deliberately, and the release workflow reads it back to pick
+# the matching sign_update.
+!Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # Fastlane / provisioning
 *.mobileprovision
@@ -36,6 +40,8 @@ Package.resolved
 
 # Secrets — OAuth client config must never be committed
 Secrets.xcconfig
+# The Sparkle update-signing key, as exported by Scripts/generate-sparkle-keys.sh
+sparkle_private_key.txt
 GoogleService-Info.plist
 client_secret*.json
 

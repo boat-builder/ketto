@@ -3,6 +3,15 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
+    let updates = UpdateController()
+
+    /// Sparkle is started here rather than in `init` so the updater never runs before the app has
+    /// finished launching. `AppModel` gets a reference so a recording can hold it off — an update
+    /// window opening mid-capture would be recorded.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        model.updates = updates
+        updates.start()
+    }
 
     /// Opening a `.recordito` package from the Finder.
     func application(_ application: NSApplication, open urls: [URL]) {

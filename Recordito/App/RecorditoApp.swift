@@ -12,16 +12,23 @@ struct RecorditoApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1220, height: 760)
         .commands {
-            AppCommands(model: appDelegate.model)
+            AppCommands(model: appDelegate.model, updates: appDelegate.updates)
         }
     }
 }
 
-/// File menu: New Recording (⌘N), Open Project… (⌘O), Export… (⌘E).
+/// Recordito menu: Check for Updates…. File menu: New Recording (⌘N), Open Project… (⌘O),
+/// Export… (⌘E).
 struct AppCommands: Commands {
     let model: AppModel
+    let updates: UpdateController
 
     var body: some Commands {
+        // Directly under "About Recordito", where macOS apps put this.
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { updates.checkForUpdates() }
+                .disabled(!updates.isConfigured || updates.isDeferred)
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Recording") { model.returnToRecorder() }
                 .keyboardShortcut("n", modifiers: .command)

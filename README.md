@@ -5,8 +5,8 @@ motion, well-timed zooms into the action, and attractive framing, with no manual
 
 **Status:** v1 (the vertical slice) is implemented end to end: capture → auto-zoom →
 cursor smoothing → framing → live preview → MP4 export. It builds under Swift 6 strict
-concurrency on Xcode 26.2, the unit tests pass (47), the app launches, and export
-throughput is measured at 4.93× real time at 1080p60 and 1.55× at 4K60. What is still
+concurrency on Xcode 26.6, the unit tests pass (47), the app launches, and export
+throughput is measured at 4.94× real time at 1080p60 and 1.59× at 4K60. What is still
 open is the part that needs a real recording, and so a person to grant the permission
 prompts: dropped frames and CPU at 4K60, auto-zoom targeting, and cursor accuracy. See
 [docs/V1-STATUS.md](docs/V1-STATUS.md) for the verification results and the manual
@@ -21,6 +21,17 @@ Target: macOS 14.0+
 
 Requirements: macOS 14 or later, Xcode 16 or later (the project uses synchronized folder
 groups, so every file under `Recordito/` and `RecorditoTests/` is part of the build).
+
+**On Xcode 26 and later, install the Metal toolchain first.** Apple unbundled it from the
+Xcode app, and this project compiles `Render/Shaders.metal`, so without it every build
+fails with `cannot execute tool 'metal' due to missing Metal Toolchain`:
+
+```bash
+xcodebuild -downloadComponent MetalToolchain
+```
+
+It is a ~690 MB one-time download and needs no `sudo`; `xcodebuild -showComponent
+MetalToolchain` reports whether it is already installed.
 
 ```bash
 xcodebuild build -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64'

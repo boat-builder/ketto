@@ -49,18 +49,24 @@ Project notes:
 
 ## 0. Verified on a real toolchain
 
-Machine: Apple silicon, macOS 26.0 SDK, Xcode 26.2 (Swift 6.2.3), `SWIFT_STRICT_CONCURRENCY = complete`.
+Machine: Apple silicon, Xcode 26.6 (17F113, Swift 6.3.3), `SWIFT_STRICT_CONCURRENCY = complete`.
+Re-verified on 26.6 after upgrading from 26.2 (Swift 6.2.3); results were identical on both.
+
+Xcode 26 unbundled the Metal toolchain, so `Render/Shaders.metal` will not compile until
+`xcodebuild -downloadComponent MetalToolchain` has been run once (~690 MB, no `sudo`).
+Without it every build fails with `cannot execute tool 'metal'`.
 
 | Check | Result |
 |---|---|
 | `xcodebuild build` | succeeds, no errors |
 | `xcodebuild test` | 47 passed, 0 failed, 2 skipped (the opt-in benchmarks below) |
 | App launch | launches to the recorder, runs, quits cleanly, no crash report |
-| Export faster than real time @ 1080p60 (SPEC §6 acceptance 5) | **4.93×** real time |
-| Export ≥ 0.5× real time @ 4K60 (SPEC §7 performance target) | **1.55×** real time |
+| Export faster than real time @ 1080p60 (SPEC §6 acceptance 5) | **4.94×** real time |
+| Export ≥ 0.5× real time @ 4K60 (SPEC §7 performance target) | **1.59×** real time |
 | Preview and export identical (SPEC §6 acceptance 4) | structurally identical path, see below |
 
-Two warnings remain, both benign and both left alone on purpose:
+Three warnings remain, all benign and all left alone on purpose. Each is a missing
+`Sendable` annotation in a system framework rather than anything wrong here:
 
 - `Playback/MetalPreviewView.swift:38` — `'@preconcurrency' on conformance to
   'MTKViewDelegate' has no effect`. The macOS 26 SDK annotates `MTKViewDelegate`
@@ -69,6 +75,21 @@ Two warnings remain, both benign and both left alone on purpose:
 - `Playback/PreviewPlayer.swift:37` — `type 'Any' does not conform to 'Sendable'` on the
   `[String: Any]` pixel-buffer attributes handed to `AVPlayerItemVideoOutput`. An
   AVFoundation annotation gap; the dictionary is a local value that is never shared.
+- `Render/SourceTexture.swift:59` — `capture of 'cvTexture' with non-Sendable type
+  'CVMetalTexture?' in a '@Sendable' closure`. **New in Swift 6.3.3**; 6.2.3 did not
+  report it. The line is the standard idiom for CoreVideo texture lifetime:
+
+  ```swift
+  commandBuffer.addCompletedHandler { _ in withExtendedLifetime(cvTexture) {} }
+  ```
+
+  A `CVMetalTexture` must outlive the GPU work that samples from it, so the completion
+  handler holds the only reference until the command buffer finishes. The closure never
+  reads or mutates the texture — it exists purely to keep ARC from releasing it early —
+  and CoreVideo objects are safe to retain and release from any thread. CoreVideo simply
+  does not declare `CVMetalTexture` as `Sendable`. Worth revisiting if a later compiler
+  promotes this to an error, in which case `nonisolated(unsafe)` on the binding is the
+  intended escape hatch.
 
 ### Export throughput benchmark
 
@@ -104,12 +125,14 @@ Measured, two minutes of 60 fps source each:
 
 | Output | Source | Elapsed | Speed | Size |
 |---|---|---|---|---|
-| 1920×1080 @ 60 | 1920×1080 HEVC | 24.4 s | 4.93× real time | 167 MB |
-| 3840×2160 @ 60 | 3840×2160 HEVC | 77.3 s | 1.55× real time | 668 MB |
+| 1920×1080 @ 60 | 1920×1080 HEVC | 24.3 s | 4.94× real time | 167 MB |
+| 3840×2160 @ 60 | 3840×2160 HEVC | 75.5 s | 1.59× real time | 668 MB |
 
-The 1080p figure is the same (4.93× vs 4.95×) whether the camera moves constantly or
-sits still for most of the recording, so the export is bound by decode and encode rather
-than by the Metal pass — content complexity should not move these numbers much.
+These barely move with anything. The 1080p figure is the same whether the camera moves
+constantly or sits still for most of the recording (4.94× vs 4.95×), and the toolchain
+upgrade from Xcode 26.2 to 26.6 changed it by about a percent (4.93× → 4.94× at 1080p,
+1.55× → 1.59× at 4K). The export is bound by decode and encode rather than by the Metal
+pass, so content complexity should not move these numbers much either.
 
 ### Preview and export
 
@@ -247,8 +270,8 @@ and is the most likely thing here to be wrong.
 export, and open the exported MP4 at the same timestamp. The picture should be the same
 frame, not a neighbour.
 
-**5 — Export speed.** Already measured automatically (section 0: 4.93× at 1080p60,
-1.55× at 4K60). On a real recording the export sheet shows the ratio while rendering and
+**5 — Export speed.** Already measured automatically (section 0: 4.94× at 1080p60,
+1.59× at 4K60). On a real recording the export sheet shows the ratio while rendering and
 again in the completion message — worth a glance to confirm it agrees.
 
 **Also worth checking while you have a capture in hand:**

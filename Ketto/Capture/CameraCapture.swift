@@ -138,15 +138,24 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         input.markAsFinished()
         let frames = appendedFrames
         let firstFrame = self.firstFrameTime
-        let fileURL = self.url
-        writer.finishWriting {
-            if writer.status == .completed {
+        writer.finishWriting { [self] in
+            // Nothing touches the writer any more once `finishWriting` has completed.
+            if finishedSuccessfully() {
                 continuation.resume(returning: Outcome(frames: frames, receivedFrames: received, firstFrameTime: firstFrame, error: nil))
             } else {
-                try? FileManager.default.removeItem(at: fileURL)
-                continuation.resume(returning: Outcome(frames: 0, receivedFrames: received, firstFrameTime: nil, error: writer.error?.localizedDescription ?? error))
+                try? FileManager.default.removeItem(at: url)
+                continuation.resume(returning: Outcome(frames: 0, receivedFrames: received, firstFrameTime: nil, error: finishError() ?? error))
             }
         }
+    }
+
+    /// Read after `finishWriting` completed, when nothing touches the writer any more.
+    private func finishedSuccessfully() -> Bool {
+        writer?.status == .completed
+    }
+
+    private func finishError() -> String? {
+        writer?.error?.localizedDescription
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {

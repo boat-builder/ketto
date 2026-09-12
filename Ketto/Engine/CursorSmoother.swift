@@ -51,14 +51,28 @@ struct CursorTrack: Sendable {
     }
 
     /// Smoothed position in source pixels. Exactly equals the click position at each click time.
+    /// Pins are sorted by time and no window exceeds `parameters.pinWindow`, so only the pins within that
+    /// distance of `t` are visited.
     func position(at t: Double) -> SIMD2<Double> {
         var p = interpolatedFrame(at: t)
-        for pin in pins {
+        guard !pins.isEmpty else { return p }
+        let reach = max(parameters.pinWindow, 1e-9)
+        // First pin whose time is at or after t - reach.
+        var lo = 0
+        var hi = pins.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if pins[mid].t < t - reach { lo = mid + 1 } else { hi = mid }
+        }
+        var index = lo
+        while index < pins.count, pins[index].t <= t + reach {
+            let pin = pins[index]
             let u = abs(t - pin.t) / max(pin.window, 1e-9)
             if u < 1 {
                 let w = 0.5 * (1 + cos(Double.pi * u))
                 p += pin.correction * w
             }
+            index += 1
         }
         return p
     }

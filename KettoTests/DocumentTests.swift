@@ -84,6 +84,67 @@ final class DocumentTests: XCTestCase {
         XCTAssertEqual(decoded, doc)
     }
 
+    func testV2FieldsRoundTripAndDefault() throws {
+        var doc = EditDocument.default
+        doc.canvas = CanvasSpec.preset("9:16")!
+        doc.crop = CropSpec(x: 0.1, y: 0.1, width: 0.8, height: 0.7)
+        doc.cursor.loop = true
+        doc.clips = [Clip(id: "a", sourceStart: 0, sourceEnd: 3, speed: 2), Clip(id: "b", sourceStart: 5, sourceEnd: 9)]
+        doc.camera.shape = .roundedRect
+        doc.camera.position = SIMD2(0.2, 0.8)
+        doc.camera.border = BorderSpec(width: 6, color: RGBAColor(hex: "#ff0000")!)
+        doc.masks = [
+            Mask(id: "m1", kind: .blur, rect: CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.1), start: 1, end: 4, strength: 0.8),
+            Mask(id: "m2", kind: .highlight, rect: CGRect(x: 0.5, y: 0.5, width: 0.2, height: 0.2), start: 2),
+        ]
+        doc.keystrokes = KeystrokeSpec(enabled: true, shortcutsOnly: false, position: .top, scale: 1.5)
+        doc.audio = AudioSpec(normalize: true, noiseRemoval: true, micVolume: 0.8, systemVolume: 0.5)
+        let data = try doc.encodedData()
+        let decoded = try EditDocument.decode(data)
+        XCTAssertEqual(decoded, doc)
+        XCTAssertNil(decoded.masks[1].end)
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(text.contains("\"framing\" : \"fill\""))
+        XCTAssertTrue(text.contains("\"type\" : \"blur\""))
+
+        // A v1 document (no v2 keys at all) gets every v2 default.
+        let v1 = try EditDocument.decode(Data("{ \"version\": 1, \"cuts\": [ { \"start\": 1, \"end\": 2 } ] }".utf8))
+        XCTAssertEqual(v1.crop, .full)
+        XCTAssertTrue(v1.clips.isEmpty)
+        XCTAssertEqual(v1.cuts, [Cut(start: 1, end: 2)])
+        XCTAssertEqual(v1.canvas.framing, .fit)
+        XCTAssertEqual(v1.camera, .default)
+        XCTAssertEqual(v1.audio, .default)
+        XCTAssertEqual(v1.keystrokes, .default)
+        XCTAssertFalse(v1.cursor.loop)
+        XCTAssertEqual(v1.resolvedClips(sourceDuration: 5).count, 2)
+    }
+
+    func testBadV2ValuesAreSanitised() throws {
+        let json = """
+        { "crop": { "x": 2, "y": -3, "width": 0, "height": 9 },
+          "clips": [ { "id": "x", "sourceStart": 4, "sourceEnd": 2, "speed": 100 } ],
+          "camera": { "size": 7, "position": [5, -1], "aspect": 0 },
+          "masks": [ { "id": "m", "type": "sparkle", "rect": [2, 2, 5, 5] } ],
+          "keystrokes": { "position": "left", "scale": 99 },
+          "audio": { "micVolume": 9 } }
+        """
+        let doc = try EditDocument.decode(Data(json.utf8))
+        XCTAssertEqual(doc.crop.width, CropSpec.minimumSide, accuracy: 1e-9)
+        XCTAssertEqual(doc.crop.height, 1)
+        XCTAssertEqual(doc.clips[0].speed, Clip.speedRange.upperBound)
+        XCTAssertEqual(doc.clips[0].sourceEnd, 2)
+        XCTAssertTrue(doc.resolvedClips(sourceDuration: 10).allSatisfy { $0.sourceEnd > $0.sourceStart })
+        XCTAssertEqual(doc.camera.size, 1)
+        XCTAssertEqual(doc.camera.position, SIMD2(1, 0))
+        XCTAssertEqual(doc.camera.aspect, 0.25)
+        XCTAssertEqual(doc.masks[0].kind, .blur)
+        XCTAssertLessThanOrEqual(doc.masks[0].rect.maxX, 1)
+        XCTAssertEqual(doc.keystrokes.position, .bottom)
+        XCTAssertEqual(doc.keystrokes.scale, 2)
+        XCTAssertEqual(doc.audio.micVolume, 2)
+    }
+
     func testColorHexParsing() {
         XCTAssertEqual(RGBAColor(hex: "#ff8000")?.hex, "#ff8000")
         XCTAssertEqual(RGBAColor(hex: "ff800080")?.alpha ?? 0, 128.0 / 255, accuracy: 1e-9)

@@ -83,6 +83,8 @@ struct ClickEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// A key press. `chars` is the display form of the key (`S`, `⏎`, `←`, `F5`); `modifiers` are the lower-case
+/// names `cmd`, `shift`, `opt`, `ctrl`, `fn` that were held.
 struct KeyEvent: Codable, Equatable, Sendable {
     var t: Double
     var chars: String
@@ -101,6 +103,32 @@ struct KeyEvent: Codable, Equatable, Sendable {
         t = try c.decode(Double.self, forKey: .t)
         chars = c.decode(String.self, forKey: .chars, default: "")
         modifiers = c.decode([String].self, forKey: .modifiers, default: [])
+    }
+
+    /// Modifier display order and symbols, the way macOS menus show them.
+    static let modifierSymbols: [(name: String, symbol: String)] = [
+        ("ctrl", "⌃"), ("opt", "⌥"), ("shift", "⇧"), ("cmd", "⌘"), ("fn", "fn"),
+    ]
+
+    /// Keys that read as a shortcut even without a modifier.
+    static let specialKeys: Set<String> = ["⏎", "⇥", "⎋", "⌫", "⌦", "←", "→", "↑", "↓", "⇞", "⇟", "↖", "↘", "space"]
+
+    /// `⌘⇧S`-style label: modifiers in canonical order, then the key.
+    var label: String {
+        let held = Set(modifiers.map { $0.lowercased() })
+        let prefix = Self.modifierSymbols.filter { held.contains($0.name) }.map(\.symbol).joined()
+        let key = chars == "space" ? "␣" : chars.uppercased()
+        return prefix + key
+    }
+
+    /// True for key combinations worth showing on screen: anything with ⌘, ⌃, ⌥ or fn, function keys,
+    /// and navigation/editing keys. Plain typing (letters, digits, shift-letters) is not a shortcut.
+    var isShortcut: Bool {
+        let held = Set(modifiers.map { $0.lowercased() })
+        if !held.isDisjoint(with: ["cmd", "ctrl", "opt", "fn"]) { return true }
+        if Self.specialKeys.contains(chars) { return true }
+        if chars.count >= 2, chars.hasPrefix("F"), Int(chars.dropFirst()) != nil { return true }
+        return false
     }
 }
 
@@ -226,4 +254,7 @@ struct EventsDocument: Codable, Equatable, Sendable {
         }
         return result
     }
+
+    /// Source pixel size as a vector.
+    var sourceSize: SIMD2<Double> { SIMD2(Double(max(display.width, 1)), Double(max(display.height, 1))) }
 }

@@ -44,6 +44,33 @@ struct AutoZoomParameters: Equatable, Sendable {
     }
 }
 
+/// The view zooms are generated for: the base (un-zoomed) view and the crop they must stay inside.
+/// With `fill` framing the base already shows a slice of the recording, so zooms are attenuated to keep the
+/// hold from becoming a keyhole — that is what "re-optimised for the crop" means in practice.
+struct ZoomFraming: Equatable, Sendable {
+    var base: Viewport
+    var bounds: Viewport
+
+    static let full = ZoomFraming(base: .full, bounds: .full)
+
+    init(base: Viewport, bounds: Viewport) {
+        self.base = base
+        self.bounds = bounds
+    }
+
+    /// Fraction of the crop the base view covers (1 when the whole crop is visible).
+    var coverage: Double {
+        let boundsArea = max(bounds.size.x * bounds.size.y, 1e-9)
+        return min(max((base.size.x * base.size.y) / boundsArea, 0), 1)
+    }
+
+    /// The zoom factor to use so that `scale` on a fully visible recording and this framing feel alike.
+    func attenuated(scale: Double) -> Double {
+        let factor = coverage.squareRoot()
+        return max(1, 1 + (scale - 1) * (0.5 + 0.5 * factor))
+    }
+}
+
 /// Derives zoom blocks from the event track. Deterministic; never looks at pixels.
 struct AutoZoomGenerator: Sendable {
     var parameters: AutoZoomParameters
@@ -67,8 +94,8 @@ struct AutoZoomGenerator: Sendable {
     }
 
     /// Generates zooms. Zooms in `existing` flagged `userModified` are preserved verbatim and generated zooms
-    /// never overlap them.
-    func generate(events: EventsDocument, existing: [Zoom] = []) -> [Zoom] {
+    /// never overlap them. Clicks outside the crop are ignored.
+    func generate(events: EventsDocument, existing: [Zoom] = [], framing: ZoomFraming = .full) -> [Zoom] {
         let kept = existing.filter(\.userModified).sorted { $0.start < $1.start }
         let display = events.display
         let width = Double(max(display.width, 1))
@@ -76,11 +103,13 @@ struct AutoZoomGenerator: Sendable {
         let scaleFactor = max(display.scale, 0.01)
         let duration = events.duration
         let p = parameters
-        let zoomScale = p.zoomScale
+        let zoomScale = framing.attenuated(scale: p.zoomScale)
+        let crop = framing.bounds
 
         // 1. Cluster clicks by time window and spatial radius.
         let downs = events.clicks
             .filter { $0.phase == .down && $0.t >= 0 && $0.t <= duration - p.ignoreTrailing }
+            .filter { crop.contains(SIMD2($0.x / width, $0.y / height)) }
             .sorted { $0.t < $1.t }
         var clusters: [[ClickEvent]] = []
         var centroid = SIMD2<Double>.zero
@@ -111,7 +140,7 @@ struct AutoZoomGenerator: Sendable {
                     center.y = min(max(center.y, bounds.minY), bounds.maxY)
                 }
             }
-            let target = Viewport(center: SIMD2(center.x / width, center.y / height), scale: zoomScale).center
+            let target = Viewport(center: SIMD2(center.x / width, center.y / height), scale: zoomScale, base: framing.base, bounds: crop).center
             var start = max(0, first.t - p.leadIn)
             var end = last.t + p.leadOut
             // 6. Transit suppression.
@@ -138,7 +167,7 @@ struct AutoZoomGenerator: Sendable {
                 if targetsClose {
                     let total = Double(last.clickCount + c.clickCount)
                     last.target = (last.target * Double(last.clickCount) + c.target * Double(c.clickCount)) / total
-                    last.target = Viewport(center: last.target, scale: zoomScale).center
+                    last.target = Viewport(center: last.target, scale: zoomScale, base: framing.base, bounds: crop).center
                     last.end = max(last.end, c.end)
                     last.lastClick = max(last.lastClick, c.lastClick)
                     last.clickCount += c.clickCount

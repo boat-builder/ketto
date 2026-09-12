@@ -24,9 +24,16 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 *.xcresult
-# Xcode regenerates the workspace inside a .xcodeproj whenever the project is opened.
-# It is per-machine state and `xcodebuild -project` never reads it.
-*.xcodeproj/project.xcworkspace/
+# Xcode regenerates the workspace inside a .xcodeproj whenever the project is opened, and
+# it is per-machine state — with one exception: xcshareddata/swiftpm/Package.resolved pins
+# the app's package versions, and both `xcodebuild -resolvePackageDependencies` and the
+# release workflow read it. Git cannot re-include a file underneath an excluded *directory*,
+# so the exclusion is spelled out a level at a time to leave that one path reachable.
+*.xcodeproj/project.xcworkspace/*
+!*.xcodeproj/project.xcworkspace/xcshareddata/
+*.xcodeproj/project.xcworkspace/xcshareddata/*
+!*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
 *.xcodeproj/xcshareddata/xcdebugger/
 
 # Swift Package Manager
@@ -35,7 +42,7 @@ xcuserdata/
 Package.resolved
 # …except the app's own resolved versions: this is a product, not a library, so the
 # Sparkle version is pinned deliberately, and the release workflow reads it back to pick
-# the matching sign_update.
+# the matching sign_update. Paired with the .xcworkspace carve-out above.
 !Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # Fastlane / provisioning

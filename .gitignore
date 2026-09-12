@@ -23,6 +23,11 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+*.xcresult
+# Xcode regenerates the workspace inside a .xcodeproj whenever the project is opened.
+# It is per-machine state and `xcodebuild -project` never reads it.
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcshareddata/xcdebugger/
 
 # Swift Package Manager
 .build/

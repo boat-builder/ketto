@@ -4,10 +4,13 @@ A macOS screen recorder that produces polished videos automatically — smooth c
 motion, well-timed zooms into the action, and attractive framing, with no manual editing.
 
 **Status:** v1 (the vertical slice) is implemented end to end: capture → auto-zoom →
-cursor smoothing → framing → live preview → MP4 export. It compiles under Swift 6 strict
-concurrency and the unit tests pass; the manual acceptance pass on real hardware is
-still open. See [docs/V1-STATUS.md](docs/V1-STATUS.md) for what is done and what to
-verify, and [SPEC.md](SPEC.md) for the full implementation spec.
+cursor smoothing → framing → live preview → MP4 export. It builds under Swift 6 strict
+concurrency on Xcode 26.2, the unit tests pass (47), the app launches, and export
+throughput is measured at 4.93× real time at 1080p60 and 1.55× at 4K60. What is still
+open is the part that needs a real recording, and so a person to grant the permission
+prompts: dropped frames and CPU at 4K60, auto-zoom targeting, and cursor accuracy. See
+[docs/V1-STATUS.md](docs/V1-STATUS.md) for the verification results and the manual
+checklist, and [SPEC.md](SPEC.md) for the full implementation spec.
 
 ## Stack
 
@@ -76,6 +79,10 @@ Re-record the golden frames after an intentional renderer change:
 ```bash
 TEST_RUNNER_RECORDITO_UPDATE_GOLDEN=1 xcodebuild test -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -only-testing:RecorditoTests/GoldenFrameTests
 ```
+
+`ExportThroughputTests` exports two synthetic minutes at 1080p60 and 4K60 and asserts the
+speed targets. It is skipped unless `RECORDITO_RUN_BENCHMARKS=1` and wants a Release
+build; the exact invocation is in [docs/V1-STATUS.md](docs/V1-STATUS.md).
 
 ## Roadmap
 

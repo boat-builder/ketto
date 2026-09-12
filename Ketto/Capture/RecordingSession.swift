@@ -251,7 +251,7 @@ final class RecordingSession {
     }
 
     /// A camera track that starts later than this into the recording is worth telling the user about.
-    static let cameraLateStartTolerance = 0.5
+    nonisolated static let cameraLateStartTolerance = 0.5
 
     /// Explains a missing or late camera track to the user, given how the camera capture ended. Nil when the
     /// camera recorded normally.

@@ -73,7 +73,8 @@ enum AudioProcessor {
             }
         }
 
-        // Pass 2: the denoised track, measured for normalisation.
+        // Pass 2: the denoised track, measured for normalisation. Scoped so the staged file is closed before
+        // pass 3 reads it back.
         var stagedURL = micURL
         if let profile {
             let reducers = (0..<channels).map { _ -> NoiseReducer in
@@ -81,21 +82,23 @@ enum AudioProcessor {
                 reducer.setNoiseProfile(profile)
                 return reducer
             }
-            let staged = try makeWriter(url: intermediateURL, format: format)
-            input.framePosition = 0
-            try forEachChunk(of: input) { buffer in
-                let count = Int(buffer.frameLength)
-                var processed: [[Float]] = []
-                for channel in 0..<channels {
-                    let samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![channel], count: count))
-                    processed.append(reducers[channel].process(samples))
+            do {
+                let staged = try makeWriter(url: intermediateURL, format: format)
+                input.framePosition = 0
+                try forEachChunk(of: input) { buffer in
+                    let count = Int(buffer.frameLength)
+                    var processed: [[Float]] = []
+                    for channel in 0..<channels {
+                        let samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![channel], count: count))
+                        processed.append(reducers[channel].process(samples))
+                    }
+                    try write(processed, to: staged, format: format)
+                    if options.normalize { loudness.add(monoOf(processed)) }
                 }
-                try write(processed, to: staged, format: format)
-                if options.normalize { loudness.add(monoOf(processed)) }
+                let tails = reducers.map { $0.flush() }
+                try write(tails, to: staged, format: format)
+                if options.normalize { loudness.add(monoOf(tails)) }
             }
-            let tails = reducers.map { $0.flush() }
-            try write(tails, to: staged, format: format)
-            if options.normalize { loudness.add(monoOf(tails)) }
             stagedURL = intermediateURL
         }
 
@@ -109,16 +112,19 @@ enum AudioProcessor {
             try FileManager.default.moveItem(at: intermediateURL, to: outputURL)
             return
         }
-        let staged = try AVAudioFile(forReading: stagedURL)
-        let writer = try makeWriter(url: temporaryURL, format: format)
-        try forEachChunk(of: staged) { buffer in
-            let count = Int(buffer.frameLength)
-            if abs(gain - 1) >= 1e-3, let data = buffer.floatChannelData {
-                for channel in 0..<channels {
-                    for i in 0..<count { data[channel][i] *= gain }
+        // Scoped so both files are closed (AVAudioFile flushes on release) before the result is moved into place.
+        do {
+            let staged = try AVAudioFile(forReading: stagedURL)
+            let writer = try makeWriter(url: temporaryURL, format: format)
+            try forEachChunk(of: staged) { buffer in
+                let count = Int(buffer.frameLength)
+                if abs(gain - 1) >= 1e-3, let data = buffer.floatChannelData {
+                    for channel in 0..<channels {
+                        for i in 0..<count { data[channel][i] *= gain }
+                    }
                 }
+                try writer.write(from: buffer)
             }
-            try writer.write(from: buffer)
         }
         try FileManager.default.moveItem(at: temporaryURL, to: outputURL)
     }

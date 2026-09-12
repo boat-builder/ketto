@@ -85,7 +85,8 @@ final class PlaybackTests: XCTestCase {
         try await SyntheticMovie.write(to: bundle.cameraURL, width: 64, height: 48, fps: 30, seconds: 1)
         XCTAssertTrue(bundle.hasCameraTrack)
         let timeline = EditTimeline(clips: [Clip(id: "a", sourceStart: 0.5, sourceEnd: 2)], sourceDuration: 2)
-        let camera = try await XCTUnwrap(CompositionBuilder.cameraComposition(for: PlaybackSource(bundle: bundle, timeline: timeline, audio: .default)))
+        let composition = try await CompositionBuilder.cameraComposition(for: PlaybackSource(bundle: bundle, timeline: timeline, audio: .default))
+        let camera = try XCTUnwrap(composition)
         let track = try XCTUnwrap(camera.tracks(withMediaType: .video).first)
         // The camera file ends at 1 s, so only the first half second of the clip has camera frames.
         let range = try await track.load(.timeRange)
@@ -169,7 +170,8 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(exporter.duration, 1.0, accuracy: 1e-9)
         XCTAssertEqual(exporter.totalFrames, 30)
         let asset = AVURLAsset(url: url)
-        XCTAssertEqual(try await asset.load(.duration).seconds, 1.0, accuracy: 0.1)
+        let exportedDuration = try await asset.load(.duration).seconds
+        XCTAssertEqual(exportedDuration, 1.0, accuracy: 0.1)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         XCTAssertEqual(audioTracks.count, 1, "the voice track is exported on the edited timeline")
     }

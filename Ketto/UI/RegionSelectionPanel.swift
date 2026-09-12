@@ -24,8 +24,8 @@ final class RegionSelectionPanel: NSPanel {
         acceptsMouseMovedEvents = true
         let view = RegionSelectionView(frame: NSRect(origin: .zero, size: frame.size))
         view.initialSelection = initial.map { view.convert(fromCG: $0, windowFrame: frame) }
-        view.onFinish = { [weak self] rect in
-            guard let self else { return }
+        view.onFinish = { [weak self, weak view] rect in
+            guard let self, let view else { return }
             self.finish(rect.map { view.convertToCG($0, windowFrame: self.frame) })
         }
         contentView = view

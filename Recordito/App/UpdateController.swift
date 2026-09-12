@@ -150,7 +150,14 @@ extension UpdateController: SPUUpdaterDelegate {
 
 // MARK: - SPUStandardUserDriverDelegate
 
-extension UpdateController: SPUStandardUserDriverDelegate {
+// `@preconcurrency` because `SPUStandardUserDriverDelegate` is the one Sparkle protocol used here
+// that the 2.9 headers do not mark `NS_SWIFT_UI_ACTOR` — unlike `SPUUpdaterDelegate` above, which
+// is annotated and so needs nothing. Without it, Swift 6 rejects a main-actor-isolated type
+// satisfying nonisolated requirements. It is safe rather than papered over: every caller is
+// `SPUStandardUserDriver`, which *is* `NS_SWIFT_UI_ACTOR`, so these only ever run on the main
+// thread, and the attribute inserts a runtime check that would trap rather than race if that
+// stopped being true. Same escape hatch `MetalPreviewView` uses for `MTKViewDelegate`.
+extension UpdateController: @preconcurrency SPUStandardUserDriverDelegate {
     /// Opts into gentle scheduled reminders, which is what makes the two callbacks below count.
     @objc var supportsGentleScheduledUpdateReminders: Bool { true }
 

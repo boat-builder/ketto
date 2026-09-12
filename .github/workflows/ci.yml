@@ -12,6 +12,9 @@ name: ci
 
 on:
   pull_request:
+  # Work branches get the same gate on every push, so a branch can be verified before a PR exists.
+  push:
+    branches: ['claude/**']
   workflow_dispatch:
 
 concurrency:

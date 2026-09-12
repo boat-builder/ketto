@@ -1,13 +1,21 @@
 # v1 implementation — status and remaining work
 
-Branch: `claude/zealous-meitner-fvrp9p` (continues `claude/v1-implementation-dca836`).
-Last updated 2026-09-11.
+Branch: `claude/v1-completion-verification-6570d0`.
+Last updated 2026-09-12.
 
-Every area of the v1 scope in SPEC.md section 6 now has an implementation. The engine,
-renderer and capture layers were built and verified in the previous pass; the playback,
-export and UI layers were added in this one on a machine without an Apple toolchain, so
-they have been reviewed for Swift 6 strict-concurrency correctness by hand but have not
-yet been compiled or run. The first thing to do on a Mac is section 3 below.
+Every area of the v1 scope in SPEC.md section 6 has an implementation, and the whole
+project now compiles, tests and runs on a real toolchain (Xcode 26.2, Swift 6.2.3, Apple
+silicon). The playback, export and UI layers had been written without a compiler in the
+previous pass; bringing them to a Mac turned up exactly one build error, now fixed:
+
+- `UI/ExportSheet.swift` — `Task { @MainActor [weak self] in … }` nested inside an
+  already-`[weak self]` closure is "reference to captured var 'self' in
+  concurrently-executing code": Swift treats a weak capture as mutable, so a nested
+  concurrent closure may not re-capture it. The progress handler is now built once in
+  the main-actor scope of `export(session:settings:to:)` and passed into the task.
+
+What is left is the part that needs a person at the machine: a real recording, which
+means granting the Screen Recording and Microphone prompts. See section 2.
 
 ## Build and test
 
@@ -38,6 +46,106 @@ Project notes:
   Set your team in Xcode for a stable identity.
 - App Sandbox is off (direct-distribution assumption, open question 1 in SPEC).
   Hardened runtime is on, with the audio-input entitlement for the microphone.
+
+## 0. Verified on a real toolchain
+
+Machine: Apple silicon, Xcode 26.6 (17F113, Swift 6.3.3), `SWIFT_STRICT_CONCURRENCY = complete`.
+Re-verified on 26.6 after upgrading from 26.2 (Swift 6.2.3); results were identical on both.
+
+Xcode 26 unbundled the Metal toolchain, so `Render/Shaders.metal` will not compile until
+`xcodebuild -downloadComponent MetalToolchain` has been run once (~690 MB, no `sudo`).
+Without it every build fails with `cannot execute tool 'metal'`.
+
+| Check | Result |
+|---|---|
+| `xcodebuild build` | succeeds, no errors |
+| `xcodebuild test` | 47 passed, 0 failed, 2 skipped (the opt-in benchmarks below) |
+| App launch | launches to the recorder, runs, quits cleanly, no crash report |
+| Export faster than real time @ 1080p60 (SPEC §6 acceptance 5) | **4.94×** real time |
+| Export ≥ 0.5× real time @ 4K60 (SPEC §7 performance target) | **1.59×** real time |
+| Preview and export identical (SPEC §6 acceptance 4) | structurally identical path, see below |
+
+Three warnings remain, all benign and all left alone on purpose. Each is a missing
+`Sendable` annotation in a system framework rather than anything wrong here:
+
+- `Playback/MetalPreviewView.swift:38` — `'@preconcurrency' on conformance to
+  'MTKViewDelegate' has no effect`. The macOS 26 SDK annotates `MTKViewDelegate`
+  properly, so the attribute is now redundant; the macOS 15 SDK does not, and removing
+  it would break the Xcode 16 build the README promises.
+- `Playback/PreviewPlayer.swift:37` — `type 'Any' does not conform to 'Sendable'` on the
+  `[String: Any]` pixel-buffer attributes handed to `AVPlayerItemVideoOutput`. An
+  AVFoundation annotation gap; the dictionary is a local value that is never shared.
+- `Render/SourceTexture.swift:59` — `capture of 'cvTexture' with non-Sendable type
+  'CVMetalTexture?' in a '@Sendable' closure`. **New in Swift 6.3.3**; 6.2.3 did not
+  report it. The line is the standard idiom for CoreVideo texture lifetime:
+
+  ```swift
+  commandBuffer.addCompletedHandler { _ in withExtendedLifetime(cvTexture) {} }
+  ```
+
+  A `CVMetalTexture` must outlive the GPU work that samples from it, so the completion
+  handler holds the only reference until the command buffer finishes. The closure never
+  reads or mutates the texture — it exists purely to keep ARC from releasing it early —
+  and CoreVideo objects are safe to retain and release from any thread. CoreVideo simply
+  does not declare `CVMetalTexture` as `Sendable`. Worth revisiting if a later compiler
+  promotes this to an error, in which case `nonisolated(unsafe)` on the binding is the
+  intended escape hatch.
+
+### Export throughput benchmark
+
+`RecorditoTests/ExportThroughputTests.swift` measures acceptance criterion 5 without a
+capture: it writes a two-minute synthetic `screen.mov` using `VideoTrackWriter`'s own
+HEVC settings (so the decode side faces the same bitstream a real capture produces),
+drives it with an event track that clicks somewhere new every 6 s — twenty zooms across
+the recording, so the camera is ramping, panning or holding for most of the export and
+the renderer stays off its cheap single-sample path — and then runs the real `Exporter`.
+
+It is skipped by default. Run it against a Release build, which is what the numbers
+describe:
+
+```bash
+xcodebuild build-for-testing -project Recordito.xcodeproj -scheme Recordito \
+  -destination 'platform=macOS,arch=arm64' -configuration Release \
+  ENABLE_TESTABILITY=YES ENABLE_HARDENED_RUNTIME=NO
+```
+
+```bash
+TEST_RUNNER_RECORDITO_RUN_BENCHMARKS=1 xcodebuild test-without-building \
+  -project Recordito.xcodeproj -scheme Recordito \
+  -destination 'platform=macOS,arch=arm64' -configuration Release \
+  -only-testing:RecorditoTests/ExportThroughputTests
+```
+
+Both overrides are needed: Release turns `ENABLE_TESTABILITY` off, which `@testable
+import Recordito` requires, and Release leaves the hardened runtime on, whose library
+validation refuses to load an ad-hoc-signed `.xctest` bundle into the app ("different
+Team IDs").
+
+Measured, two minutes of 60 fps source each:
+
+| Output | Source | Elapsed | Speed | Size |
+|---|---|---|---|---|
+| 1920×1080 @ 60 | 1920×1080 HEVC | 24.3 s | 4.94× real time | 167 MB |
+| 3840×2160 @ 60 | 3840×2160 HEVC | 75.5 s | 1.59× real time | 668 MB |
+
+These barely move with anything. The 1080p figure is the same whether the camera moves
+constantly or sits still for most of the recording (4.94× vs 4.95×), and the toolchain
+upgrade from Xcode 26.2 to 26.6 changed it by about a percent (4.93× → 4.94× at 1080p,
+1.55× → 1.59× at 4K). The export is bound by decode and encode rather than by the Metal
+pass, so content complexity should not move these numbers much either.
+
+### Preview and export
+
+Both paths are the same two calls: `composer.state(at:fps:)` for the frame state, then
+`renderer.encode(state:source:into:commandBuffer:)` through a `SourceTextureUploader`
+(`Playback/MetalPreviewView.swift:62` and `Export/Exporter.swift:322`). They differ only
+in the target — a drawable versus a pooled `CVPixelBuffer` — and
+`GoldenFrameTests.testPixelBufferTargetMatchesTextureTarget` asserts those two targets
+render identical pixels. What that does *not* prove is frame *timing*: that the source
+frame the preview shows at time *t* is the one the exporter picks at time *t*. That is
+acceptance item 4 in section 2 and still wants an eyeball.
+
+---
 
 ## 1. Done
 
@@ -108,55 +216,91 @@ Playback, export and UI details:
   (`terminateLater`). `application(_:open:)` opens `.recordito` packages from
   the Finder; ⌘N / ⌘O / ⌘E are in the File menu.
 
-## 2. Remaining
+## 2. Remaining — the manual acceptance pass
 
-### Manual acceptance pass (needs a person at the machine to grant TCC prompts)
+This is the whole of what is left, and it needs a person at the machine: every item
+below requires a real capture, which means granting the Screen Recording prompt (and the
+Microphone prompt if the mic is on). Nothing here can be automated away — TCC prompts
+are deliberately not scriptable.
 
-1. 2-minute 4K60 recording: `RecordingStatistics.droppedFrames == 0` (the editor
-   shows a warning line when frames were dropped), CPU under 15 % (Activity
-   Monitor).
-2. Auto zooms land on the content clicked in a typical app demo.
-3. Cursor visibly smooth; frame at a click shows the tip on the click point.
-4. Preview and export identical (golden test covers the renderer; compare a
-   paused preview frame with the exported frame at the same time).
-5. 2-minute 1080p60 export completes faster than real time. The export sheet
-   shows the ratio while rendering and in the completion message.
+Acceptance criteria 4 (partly) and 5 are already covered by section 0; 1, 2 and 3 are
+open.
 
-## 3. What to check first on a Mac
+**Setup.** Build and launch:
 
-The new layers were written without a compiler. Expected trouble spots, in order:
+```bash
+xcodebuild build -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64'
+```
 
-- Build errors. Likely candidates are Swift 6 isolation diagnostics in the
-  SwiftUI views (`Binding(get:set:)` closures and `LabeledSlider.format`),
-  the `@preconcurrency MTKViewDelegate` conformance in `MetalPreviewView`, and
-  Sendable diagnostics on AVFoundation types (every file that uses AVFoundation
-  imports it with `@preconcurrency`).
-- `ExportPipelineTests`: the first test writes a 2 s H.264 movie, exports it at
-  640×360 and checks the track size and duration. If `AVAssetReaderAudioMixOutput`
-  rejects the LPCM settings in `ExportSettings.audioDecodeSettings` on a real
-  bundle (the synthetic bundle has no audio), pass `nil` and let the AAC writer
-  input convert.
+Launch the built `Recordito.app`, press Record once and grant Screen Recording when
+macOS asks, then **quit and relaunch** — `CGPreflightScreenCaptureAccess` keeps
+returning false until the process restarts, and the recorder's banner says so. Because
+signing is ad hoc, the grant is keyed to the binary's signature and macOS may ask again
+after a rebuild; set a development team in the target's Signing settings for a stable
+identity.
+
+**1 — Capture holds up at 4K60.** Pick a 4K display, record about two minutes of normal
+app use, and press Stop on the floating HUD.
+
+- Dropped frames: the editor shows a warning line when `RecordingStatistics.droppedFrames
+  > 0`. No line means zero. (`UI/EditorView.swift:15`)
+- CPU: watch Recordito in Activity Monitor during the recording. Target is under 15 % on
+  an M1; expect a spike at start while the encoder spins up.
+- While you are here, confirm the HUD is **not** in the recording, and that its Stop
+  click is absent from `events.json` inside the `.recordito` package
+  (`Show Package Contents` in the Finder).
+
+**2 — Auto zooms land on the right content.** Record a typical app demo: click a
+sidebar item, then a button somewhere else, then something in a third region. Play the
+result back in the editor. Each click should be framed by a zoom that holds on the thing
+you clicked, and two clicks close together in the same area should hold rather than zoom
+out and straight back in. If zooms feel too aggressive or too timid, the Intensity
+slider in the inspector regenerates them.
+
+**3 — Cursor is smooth and pixel-accurate at clicks.** Play back and watch the cursor:
+it should glide, not jitter, and it should not lag behind fast flicks. Then step to a
+click frame with the arrow keys and check the pointer *tip* sits on the thing that was
+clicked — `CursorTrack.position(at:)` is built to be exact at every click, so any visible
+offset is a real bug. Also confirm the I-beam and pointing-hand shapes are picked up
+(hover text in Safari, a link) — `CursorTypeDetector` matches by rasterised alpha shape
+and is the most likely thing here to be wrong.
+
+**4 — Preview and export match (the timing half).** The rendering half is proven by
+`GoldenFrameTests`; what is left is timing. Pause the preview at a distinctive moment,
+export, and open the exported MP4 at the same timestamp. The picture should be the same
+frame, not a neighbour.
+
+**5 — Export speed.** Already measured automatically (section 0: 4.94× at 1080p60,
+1.59× at 4K60). On a real recording the export sheet shows the ratio while rendering and
+again in the completion message — worth a glance to confirm it agrees.
+
+**Also worth checking while you have a capture in hand:**
+
+- Audio: confirm `mic.caf` (device-native format from `AVCaptureAudioDataOutput`) plays
+  back in the editor and lands in the export, and that system audio does too. Check they
+  stay in sync with the picture across the whole two minutes.
+- Encoder quality: `VideoTrackWriter` uses HEVC at ~0.10 bits/pixel/frame (≈46 Mbps at
+  4K60) with a 1 s GOP. Check text crispness and file size on a real recording and adjust
+  the constant if it looks soft.
+- Multi-display: cursor coordinates are converted from AppKit space using the main
+  display's height (`DisplayEnumerator.cgPoint(fromCocoa:)`). Verify on a secondary
+  display, including one positioned above or to the left of the main one — that is where
+  a sign error would show up. The HUD should appear on the display being recorded.
+
+## 3. Runtime trouble spots
+
+The build-error list that used to live here is resolved (section 0). What remains are
+things a compiler cannot catch, in rough order of likelihood:
+
 - Live preview: if the first frame never appears, check that
   `AVPlayerItemVideoOutput.hasNewPixelBuffer` starts returning true after the
   item is ready; `PreviewPlayer.pollFrame` re-arms the output every 60 misses.
-- HUD: confirm it is absent from the recording and that its Stop click is not
-  in `events.json`.
-- ScreenCaptureKit audio arrives as float32 non-interleaved 48 kHz;
-  `AlignedAudioWriter` converts other layouts with `AVAudioConverter`. Verify
-  `mic.caf` from `AVCaptureAudioDataOutput` (device-native format) plays back
-  in the editor and lands in the export.
-- `CursorTypeDetector` matches `NSCursor.currentSystem` by rasterised alpha
-  shape; verify the I-beam and pointing hand are detected in Safari/Xcode.
+- `ExportPipelineTests` passes on the synthetic bundle, which has no audio. If
+  `AVAssetReaderAudioMixOutput` rejects the LPCM settings in
+  `ExportSettings.audioDecodeSettings` on a *real* bundle, pass `nil` and let the AAC
+  writer input convert.
 - `EventRecorder.frontWindowFrame` relies on `CGWindowListCopyWindowInfo`
   ordering (front to back) and `kCGWindowLayer == 0`.
-- `VideoTrackWriter` uses HEVC at ~0.10 bits/pixel/frame (≈46 Mbps at 4K60)
-  with a 1 s GOP and `movieFragmentInterval = 5 s`; check text crispness and
-  file size on a real recording and adjust the constant if needed.
-- Multi-display: cursor coordinates are converted from AppKit space using the
-  main display's height (`DisplayEnumerator.cgPoint(fromCocoa:)`); verify on a
-  secondary display, including one positioned above or left of the main one.
-  The HUD is positioned with the `NSScreen` whose `NSScreenNumber` matches the
-  chosen display.
 - Screen Recording permission: `CGPreflightScreenCaptureAccess` can keep
   returning false until the app is relaunched after access is granted; the
   recorder's banner says so.

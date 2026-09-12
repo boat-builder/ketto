@@ -37,14 +37,18 @@ final class ExportController {
         state = .running(.zero)
         let started = Date()
         let metadata = VideoMetadata(title: session.bundle.name)
+        // The handler is built here, in the main-actor scope, so the weak capture happens once: re-capturing
+        // `self` inside the nested Task would be a reference to a mutable capture from concurrent code.
+        let onProgress: @Sendable (ExportProgress) -> Void = { [weak self] progress in
+            guard let controller = self else { return }
+            Task { @MainActor in
+                guard controller.isRunning else { return }
+                controller.state = .running(progress)
+            }
+        }
         task = Task { [weak self] in
             do {
-                let rendered = try await exporter.run { progress in
-                    Task { @MainActor [weak self] in
-                        guard let self, self.isRunning else { return }
-                        self.state = .running(progress)
-                    }
-                }
+                let rendered = try await exporter.run(progress: onProgress)
                 let destination = LocalFileDestination(targetURL: target)
                 let url = try await destination.upload(rendered, metadata: metadata, progress: { _ in })
                 self?.state = .finished(url: url, duration: exporter.duration, elapsed: Date().timeIntervalSince(started))

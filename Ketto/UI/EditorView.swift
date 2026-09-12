@@ -14,12 +14,21 @@ struct EditorView: View {
                 TransportBar(session: session)
                 Divider()
                 EditorTimelineView(session: session)
-                if let statistics = model.lastRecordingStatistics, statistics.droppedFrames > 0 {
-                    Divider()
-                    Text("\(statistics.droppedFrames) frames were dropped during capture.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .padding(6)
+                if let statistics = model.lastRecordingStatistics, model.lastRecordedBundle == session.bundle {
+                    if statistics.droppedFrames > 0 {
+                        Divider()
+                        Text("\(statistics.droppedFrames) frames were dropped during capture.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .padding(6)
+                    }
+                    if let warning = statistics.cameraWarning {
+                        Divider()
+                        Text(warning)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .padding(6)
+                    }
                 }
             }
             .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)

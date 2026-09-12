@@ -330,7 +330,10 @@ behaves.
   filmstrip, audio waveforms
 - Zoom blocks: add, delete, move, trim, retime, adjust scale and easing, with snapping
 - Trim, cut, split, and speed ramps on the main track
-- Webcam capture and overlay: shape, position, size, border; auto-dodge the cursor
+- Webcam capture and overlay: a floating bubble shows the camera on screen from the moment
+  it is switched on and through the recording (draggable, never captured; the edit opens
+  with the bubble where it was left); shape, position, size, corner radius, border;
+  auto-dodge the cursor
 - Aspect presets — 16:9, 9:16 vertical, 1:1, 4:5 — with zooms re-optimized for the crop
 - Crop
 - Masking: blur regions for sensitive info, and highlight masks for emphasis

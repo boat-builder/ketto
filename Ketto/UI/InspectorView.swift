@@ -22,9 +22,7 @@ struct InspectorView: View {
             frameSection
             cursorSection
             zoomSection
-            if session.hasCameraTrack {
-                cameraSection
-            }
+            cameraSection
             masksSection
             keystrokesSection
             if session.bundle.hasMicTrack || session.bundle.hasSystemAudioTrack {
@@ -437,8 +435,22 @@ struct InspectorView: View {
 
     // MARK: - Camera
 
+    /// Always present, so the feature is discoverable: a project without a camera track says how to get one.
     private var cameraSection: some View {
         Section("Camera") {
+            if session.hasCameraTrack {
+                cameraControls
+            } else {
+                Text("This project has no camera track. Switch on Record camera in the recorder to record yourself alongside the screen; the camera floats over the display while you record and becomes a bubble here, with its shape, size, position, corners and border to adjust.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var cameraControls: some View {
+        Group {
             Toggle("Show camera", isOn: $session.edit.camera.enabled)
             Picker("Shape", selection: $session.edit.camera.shape) {
                 Text("Circle").tag(CameraShape.circle)
@@ -463,15 +475,31 @@ struct InspectorView: View {
                 }
             }
             .buttonStyle(.borderless)
+            LabeledSlider(title: "Horizontal", value: cameraPosition(\.x), range: 0...1, format: { percent($0) })
+            LabeledSlider(title: "Vertical", value: cameraPosition(\.y), range: 0...1, format: { percent($0) })
+        }
+        Group {
             LabeledSlider(title: "Border", value: $session.edit.camera.border.width, range: 0...12, format: { pixels($0) })
             ColorPicker("Border color", selection: borderColor, supportsOpacity: false)
             Toggle("Shadow", isOn: $session.edit.camera.shadow)
             Toggle("Mirror", isOn: $session.edit.camera.mirrored)
             Toggle("Move out of the cursor's way", isOn: $session.edit.camera.dodgeCursor)
-            Text("Drag the camera in the preview to place it; drag its corner to resize.")
+            Text("Drag the camera in the preview to place it; drag its corner to resize. It starts out where the floating bubble was when the recording stopped.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// One axis of the overlay's centre, 0 = left / top, 1 = right / bottom of the canvas.
+    private func cameraPosition(_ keyPath: WritableKeyPath<SIMD2<Double>, Double>) -> Binding<Double> {
+        Binding(
+            get: { session.edit.camera.position[keyPath: keyPath] },
+            set: { value in
+                var doc = session.edit
+                doc.camera.position[keyPath: keyPath] = min(max(value, 0), 1)
+                session.edit = doc
+            }
+        )
     }
 
     private struct CameraCorner: Identifiable {

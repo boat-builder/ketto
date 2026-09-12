@@ -43,6 +43,11 @@ struct RecordingStatistics: Sendable {
     var skippedIdleFrames: Int
     var pixelWidth: Int
     var pixelHeight: Int
+    /// Frames written to `camera.mov`; 0 when the camera was off or recorded nothing.
+    var cameraFrames: Int = 0
+    /// Why the camera track is missing or starts late although camera recording was on. Nil when the camera
+    /// was off or recorded normally.
+    var cameraWarning: String? = nil
 }
 
 /// Orchestrates one recording: screen + system audio (ScreenCaptureKit), microphone and camera (AVFoundation)
@@ -67,6 +72,12 @@ final class RecordingSession {
     @ObservationIgnored private var camera: CameraCapture?
     @ObservationIgnored private var eventRecorder: EventRecorder
     @ObservationIgnored var onUnexpectedStop: (@MainActor (Error?) -> Void)?
+    /// The camera's capture session while it runs, for the floating camera bubble's live picture. Set by
+    /// `prepare()` or `start()`, cleared when the camera stops.
+    private(set) var cameraPreviewSession: AVCaptureSession?
+    /// Where the floating camera bubble sat over the captured area; set by the app right before `stop()`, and
+    /// where the new project's camera overlay starts out.
+    @ObservationIgnored var cameraPlacement: CameraPlacement?
 
     init(configuration: RecordingConfiguration) {
         self.configuration = configuration
@@ -79,6 +90,28 @@ final class RecordingSession {
         clock.elapsedRecordingTime()
     }
 
+    /// Warms the camera up ahead of `start()`: the app runs this during the countdown, so the camera's start-up
+    /// (typically a second or two) is over by the first screen frame and the camera track begins with the
+    /// recording. Frames captured before the recording clock has a base are dropped. Asks for camera access if
+    /// that has not happened yet, and throws when it is refused. Does nothing when the camera is off.
+    func prepare() async throws {
+        guard state == .idle, configuration.recordCamera, camera == nil else { return }
+        guard await CapturePermissions.requestCamera() else { throw CaptureError.cameraDenied }
+        guard state == .idle, camera == nil else { return }
+        let camera = try CameraCapture(deviceID: configuration.cameraDeviceID, url: bundle.cameraURL, clock: clock)
+        self.camera = camera
+        cameraPreviewSession = camera.captureSession
+        camera.start()
+    }
+
+    /// Releases a camera warmed up by `prepare()` when the recording never starts (the countdown was cancelled).
+    func cancelPreparation() async {
+        guard state == .idle, let camera else { return }
+        self.camera = nil
+        cameraPreviewSession = nil
+        _ = await camera.stop()
+    }
+
     func start() async throws {
         guard state == .idle else { return }
         state = .starting
@@ -87,7 +120,7 @@ final class RecordingSession {
             if configuration.recordMicrophone {
                 guard await CapturePermissions.requestMicrophone() else { throw CaptureError.microphoneDenied }
             }
-            if configuration.recordCamera {
+            if configuration.recordCamera, camera == nil {
                 guard await CapturePermissions.requestCamera() else { throw CaptureError.cameraDenied }
             }
             try RecordingBundle.create(at: bundle.url)
@@ -120,9 +153,11 @@ final class RecordingSession {
                 self.microphone = microphone
                 microphone.start()
             }
-            if configuration.recordCamera {
+            if configuration.recordCamera, camera == nil {
+                // Not warmed up by `prepare()`: start it now and accept that the track begins a little late.
                 let camera = try CameraCapture(deviceID: configuration.cameraDeviceID, url: bundle.cameraURL, clock: clock)
                 self.camera = camera
+                cameraPreviewSession = camera.captureSession
                 camera.start()
             }
 
@@ -167,8 +202,9 @@ final class RecordingSession {
         try await engine?.stop()
         await microphone?.stop()
         microphone = nil
-        await camera?.stop()
+        let cameraOutcome = await camera?.stop()
         camera = nil
+        cameraPreviewSession = nil
 
         guard let engine, let videoWriter = engine.videoWriter, let base = clock.base, videoWriter.appendedFrames > 0 else {
             state = .failed
@@ -188,6 +224,14 @@ final class RecordingSession {
         var edit = EditDocument.default
         edit.zooms = AutoZoomGenerator().generate(events: events)
         edit.camera.enabled = bundle.hasCameraTrack
+        if bundle.hasCameraTrack {
+            // The floating bubble showed a mirror image while recording; the video starts out looking the same.
+            edit.camera.mirrored = true
+            if let cameraPlacement {
+                let layout = CanvasLayout.compute(canvas: edit.canvas, style: edit.style, sourceAspect: Double(pixelSize.width) / Double(max(pixelSize.height, 1)))
+                edit.camera = cameraPlacement.overlay(from: edit.camera, layout: layout)
+            }
+        }
         try bundle.write(edit: edit)
 
         statistics = RecordingStatistics(
@@ -196,7 +240,9 @@ final class RecordingSession {
             droppedFrames: videoWriter.droppedFrames,
             skippedIdleFrames: videoWriter.skippedIdleFrames,
             pixelWidth: pixelSize.width,
-            pixelHeight: pixelSize.height
+            pixelHeight: pixelSize.height,
+            cameraFrames: cameraOutcome?.frames ?? 0,
+            cameraWarning: configuration.recordCamera ? Self.cameraWarning(for: cameraOutcome) : nil
         )
         await Self.writeThumbnail(for: bundle, at: min(1.0, duration / 2))
         state = .finished
@@ -204,14 +250,39 @@ final class RecordingSession {
         return bundle
     }
 
+    /// A camera track that starts later than this into the recording is worth telling the user about.
+    static let cameraLateStartTolerance = 0.5
+
+    /// Explains a missing or late camera track to the user, given how the camera capture ended. Nil when the
+    /// camera recorded normally.
+    nonisolated static func cameraWarning(for outcome: CameraCapture.Outcome?) -> String? {
+        guard let outcome else {
+            return "The camera was never started, so this project has no camera track."
+        }
+        if outcome.frames > 0 {
+            if let start = outcome.firstFrameTime, start > cameraLateStartTolerance {
+                return String(format: "The camera took %.1f s to start, so the camera bubble appears that far into the recording.", start)
+            }
+            return nil
+        }
+        if let error = outcome.error {
+            return "The camera track could not be saved (\(error)), so this project has no camera track."
+        }
+        if outcome.receivedFrames == 0 {
+            return "The camera delivered no frames, so this project has no camera track. Check that no other app is using the camera and that Ketto is allowed under System Settings → Privacy & Security → Camera."
+        }
+        return "The camera only delivered frames before the screen recording began, so this project has no camera track."
+    }
+
     private func teardownAfterFailure() async {
         eventRecorder.stop()
         try? await engine?.stop()
         await microphone?.stop()
-        await camera?.stop()
+        _ = await camera?.stop()
         engine = nil
         microphone = nil
         camera = nil
+        cameraPreviewSession = nil
         if (try? FileManager.default.contentsOfDirectory(atPath: bundle.url.path))?.isEmpty ?? false {
             try? FileManager.default.removeItem(at: bundle.url)
         }

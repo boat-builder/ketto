@@ -79,6 +79,28 @@ final class ComposerV2Tests: XCTestCase {
         XCTAssertNil(FrameComposer(edit: edit, events: away, source: source).state(at: 5).camera, "no overlay without a camera track")
     }
 
+    func testCameraPlacementLandsTheBubbleWhereItFloated() {
+        // The floating bubble sat over the recording with its centre 90 % across and 80 % down, a quarter of the
+        // screen high. On the canvas the overlay must sit at the same spot relative to the screen frame.
+        let edit = EditDocument.default
+        let layout = CanvasLayout.compute(canvas: edit.canvas, style: edit.style, sourceAspect: 16.0 / 9.0)
+        let placement = CameraPlacement(center: SIMD2(0.9, 0.8), height: 0.25)
+        let spec = placement.overlay(from: edit.camera, layout: layout)
+        XCTAssertEqual(spec.shape, edit.camera.shape, "only position and size change")
+        XCTAssertEqual(spec.border, edit.camera.border)
+        let rect = FrameComposer.cameraRect(spec: spec, layout: layout)
+        let content = layout.contentRect
+        XCTAssertEqual(rect.midX, content.minX + 0.9 * content.width, accuracy: 0.5)
+        XCTAssertEqual(rect.midY, content.minY + 0.8 * content.height, accuracy: 0.5)
+        XCTAssertEqual(rect.height, 0.25 * content.height, accuracy: 0.5)
+
+        // A bubble dragged off the recording lands on its edge instead of vanishing, and a nonsense size is clamped.
+        let outside = CameraPlacement(center: SIMD2(1.7, -0.3), height: .nan).overlay(from: edit.camera, layout: layout)
+        XCTAssertEqual(outside.position.x, Double(content.maxX) / layout.canvasSize.x, accuracy: 1e-9)
+        XCTAssertEqual(outside.position.y, Double(content.minY) / layout.canvasSize.y, accuracy: 1e-9)
+        XCTAssertEqual(outside.size, 0.05)
+    }
+
     func testDodgeScheduleEasesInAndOut() {
         let schedule = CameraDodgeSchedule.make(duration: 10, sampleRate: 10, leadIn: 0.3, blend: 0.4) { t in t >= 3 && t < 5 }
         XCTAssertEqual(schedule.intervals.count, 1)

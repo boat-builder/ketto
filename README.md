@@ -87,7 +87,7 @@ identity.
 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-138 tests covering the document schemas and bundle I/O, the edit timeline and its
+140 tests covering the document schemas and bundle I/O, the edit timeline and its
 operations, auto-zoom, cursor smoothing, the camera path and framing (including the
 vertical-export criterion), frame composition, audio alignment and processing, the
 renderer (golden-frame comparisons against committed PNGs plus the mask, camera and
@@ -123,9 +123,15 @@ TEST_RUNNER_KETTO_UPDATE_GOLDEN=1 xcodebuild test -project Ketto.xcodeproj -sche
 
 **Record.** Pick a display, a window or a region, choose microphone, system audio and
 camera, optionally keyboard-shortcut capture (asks for Accessibility access, only then)
-and hiding the desktop icons, then press Record. The main window hides, a floating control
-appears on the recorded display (never captured), and a 3-2-1 countdown runs. The control
-pauses and resumes the recording into one continuous file, and stops it.
+and hiding the desktop icons, then press Record. Switching the camera on asks for camera
+access and puts a floating bubble with your picture on the display — the bubble the
+video will show, mirrored like a mirror. Drag it wherever it is least in the way: it is
+never captured, it stays through the countdown and the recording showing exactly what
+is being recorded, and where you leave it is where the bubble starts out in the edit.
+The main window hides, a floating control appears on the recorded display (never
+captured), and a 3-2-1 countdown runs, during which the camera warms up so its track
+starts with the first frame. The control pauses and resumes the recording into one
+continuous file, and stops it.
 
 **Edit.** On Stop the project opens in the editor: live preview, transport, the timeline
 and the inspector. The timeline shows a filmstrip with the voice and system waveforms, the
@@ -134,9 +140,11 @@ edges to retime it, with snapping to the playhead and neighbouring edges; double
 zoom track to add a zoom; ⌘B splits the clip at the playhead; ⌫ deletes the selection
 (a deleted clip is a cut). The inspector covers canvas presets (16:9, 9:16, 1:1, 4:5; fit
 or fill framing), crop, background, frame, cursor (including loop-cursor), automatic
-zooms, the camera bubble, masks, keystroke display, audio (volumes, voice normalisation,
-noise removal) and effects. The preview is editable too: drag the crop, a mask's region,
-the camera bubble or a zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosave.
+zooms, the camera bubble (shape, size, corner radius, position by corner preset or
+horizontal and vertical sliders, border, shadow, mirror, moving out of the cursor's way),
+masks, keystroke display, audio (volumes, voice normalisation, noise removal) and
+effects. The preview is editable too: drag the crop, a mask's region, the camera bubble
+or a zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosave.
 
 **Export** (⌘E) offers Web (MP4 H.264 1080p60), Social (30 fps, higher bitrate), Hand-off
 (ProRes 422 MOV) and GIF presets, or any combination of MP4/MOV/GIF, H.264/HEVC/ProRes,

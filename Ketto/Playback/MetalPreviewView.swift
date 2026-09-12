@@ -39,19 +39,21 @@ struct MetalPreviewView: NSViewRepresentable {
         var session: ProjectSession
         let renderer: FrameRenderer?
         let uploader: SourceTextureUploader?
+        let cameraUploader: SourceTextureUploader?
 
         init(session: ProjectSession) {
             self.session = session
             let renderer = try? FrameRenderer()
             self.renderer = renderer
             self.uploader = renderer.map { SourceTextureUploader(device: $0.device) }
+            self.cameraUploader = renderer.map { SourceTextureUploader(device: $0.device) }
             super.init()
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
         func draw(in view: MTKView) {
-            guard let renderer, let uploader,
+            guard let renderer, let uploader, let cameraUploader,
                   view.drawableSize.width >= 1, view.drawableSize.height >= 1,
                   let drawable = view.currentDrawable,
                   let commandBuffer = renderer.commandQueue.makeCommandBuffer() else { return }
@@ -59,8 +61,12 @@ struct MetalPreviewView: NSViewRepresentable {
             if let pixelBuffer = frame.pixelBuffer {
                 uploader.upload(pixelBuffer, commandBuffer: commandBuffer)
             }
-            let state = session.composer.state(at: frame.time, fps: Double(view.preferredFramesPerSecond))
-            renderer.encode(state: state, source: uploader.texture, into: drawable.texture, commandBuffer: commandBuffer)
+            if let cameraBuffer = frame.cameraPixelBuffer {
+                cameraUploader.upload(cameraBuffer, commandBuffer: commandBuffer)
+            }
+            let state = session.previewComposer.state(at: frame.time, fps: Double(view.preferredFramesPerSecond))
+            let camera = session.player.hasCamera ? cameraUploader.texture : nil
+            renderer.encode(state: state, source: uploader.texture, camera: camera, into: drawable.texture, commandBuffer: commandBuffer)
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }

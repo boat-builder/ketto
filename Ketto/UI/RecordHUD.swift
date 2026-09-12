@@ -1,12 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// The floating record HUD: countdown digits, then a red dot, elapsed time and a Stop button. It sits at the
+/// The floating record HUD: countdown digits, then a red dot, elapsed time, Pause and Stop. It sits at the
 /// bottom centre of the recorded display. It never appears in the capture because `ScreenCaptureEngine`
 /// excludes every window of this process, and clicks on it are dropped by `EventRecorder`.
 @MainActor
 final class RecordHUDPanel: NSPanel {
-    static let size = NSSize(width: 312, height: 76)
+    static let size = NSSize(width: 360, height: 76)
 
     init(model: AppModel, display: CaptureDisplay) {
         super.init(
@@ -49,7 +49,7 @@ struct RecordHUDView: View {
             case .countdown(let remaining):
                 countdown(remaining)
             case .recording(let session):
-                recording(session)
+                RecordingControls(model: model, session: session)
             case .finishing:
                 ProgressView()
                     .controlSize(.small)
@@ -85,28 +85,6 @@ struct RecordHUDView: View {
         }
     }
 
-    private func recording(_ session: RecordingSession) -> some View {
-        HStack(spacing: 14) {
-            Circle()
-                .fill(.red)
-                .frame(width: 14, height: 14)
-            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-                Text(Self.timecode(session.elapsed))
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-            }
-            Spacer()
-            Button {
-                model.stopRecording()
-            } label: {
-                Label("Stop", systemImage: "stop.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .keyboardShortcut(.escape, modifiers: [])
-        }
-    }
-
     static func timecode(_ seconds: TimeInterval) -> String {
         let total = max(0, Int(seconds.rounded(.down)))
         let hours = total / 3600
@@ -116,5 +94,45 @@ struct RecordHUDView: View {
             return String(format: "%d:%02d:%02d", hours, minutes, secs)
         }
         return String(format: "%02d:%02d", minutes, secs)
+    }
+}
+
+/// The red dot, the clock (recording time, pauses excluded), Pause / Resume and Stop.
+private struct RecordingControls: View {
+    let model: AppModel
+    let session: RecordingSession
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(session.isPaused ? Color.secondary : Color.red)
+                .frame(width: 14, height: 14)
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                Text(RecordHUDView.timecode(session.elapsed))
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+            }
+            if session.isPaused {
+                Text("Paused")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                session.togglePause()
+            } label: {
+                Image(systemName: session.isPaused ? "play.fill" : "pause.fill")
+                    .frame(width: 16)
+            }
+            .help(session.isPaused ? "Resume recording" : "Pause recording")
+            Button {
+                model.stopRecording()
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .keyboardShortcut(.escape, modifiers: [])
+        }
     }
 }

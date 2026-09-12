@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// The editor: Metal preview with a transport bar on the left, the inspector on the right.
+/// The editor: Metal preview, transport and timeline on the left, the inspector on the right.
 struct EditorView: View {
     @Bindable var model: AppModel
     let session: ProjectSession
@@ -12,6 +12,8 @@ struct EditorView: View {
                 PreviewPane(session: session)
                 Divider()
                 TransportBar(session: session)
+                Divider()
+                EditorTimelineView(session: session)
                 if let statistics = model.lastRecordingStatistics, statistics.droppedFrames > 0 {
                     Divider()
                     Text("\(statistics.droppedFrames) frames were dropped during capture.")
@@ -20,7 +22,7 @@ struct EditorView: View {
                         .padding(6)
                 }
             }
-            .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
             InspectorView(session: session)
                 .frame(minWidth: 290, idealWidth: 330, maxWidth: 440)
         }
@@ -36,6 +38,20 @@ struct EditorView: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
+                    session.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!session.canUndo)
+                .help("Undo (⌘Z)")
+                Button {
+                    session.redo()
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .disabled(!session.canRedo)
+                .help("Redo (⇧⌘Z)")
+                Button {
                     NSWorkspace.shared.activateFileViewerSelecting([session.bundle.url])
                 } label: {
                     Label("Show in Finder", systemImage: "folder")
@@ -46,7 +62,7 @@ struct EditorView: View {
                 } label: {
                     Label("Export…", systemImage: "square.and.arrow.up")
                 }
-                .help("Export an MP4 (⌘E)")
+                .help("Export the video (⌘E)")
             }
         }
         .sheet(isPresented: $model.isExportSheetPresented) {
@@ -55,33 +71,62 @@ struct EditorView: View {
     }
 }
 
-/// The live preview, kept at the canvas aspect ratio.
+/// The live preview, kept at the canvas aspect ratio, with the direct-manipulation overlay on top.
 struct PreviewPane: View {
     let session: ProjectSession
 
     var body: some View {
-        ZStack {
-            Color(nsColor: .underPageBackgroundColor)
-            MetalPreviewView(session: session)
-                .aspectRatio(session.edit.canvas.aspectRatio, contentMode: .fit)
-                .padding(20)
-            if let error = session.player.loadError {
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(.white)
-                    .padding(12)
-                    .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
-            } else if let saveError = session.saveError {
-                VStack {
-                    Spacer()
-                    Text("Could not save edit.json: \(saveError)")
-                        .font(.caption)
-                        .padding(8)
-                        .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 6))
-                        .padding(8)
+        GeometryReader { geo in
+            let available = CGSize(width: max(geo.size.width - 40, 10), height: max(geo.size.height - 40, 10))
+            let fitted = Self.fit(aspect: session.edit.canvas.aspectRatio, in: available)
+            ZStack {
+                Color(nsColor: .underPageBackgroundColor)
+                ZStack(alignment: .topLeading) {
+                    MetalPreviewView(session: session)
+                        .frame(width: fitted.width, height: fitted.height)
+                    PreviewOverlayView(session: session, size: fitted)
+                }
+                .frame(width: fitted.width, height: fitted.height)
+                if let error = session.player.loadError {
+                    Text(error)
+                        .font(.callout)
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
+                } else if let saveError = session.saveError {
+                    VStack {
+                        Spacer()
+                        Text("Could not save edit.json: \(saveError)")
+                            .font(.caption)
+                            .padding(8)
+                            .background(.red.opacity(0.8), in: RoundedRectangle(cornerRadius: 6))
+                            .padding(8)
+                    }
+                }
+                if session.isEditingCrop {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button("Done Cropping") { session.endCropEditing() }
+                                .buttonStyle(.borderedProminent)
+                                .padding(12)
+                        }
+                        Spacer()
+                    }
                 }
             }
         }
+    }
+
+    static func fit(aspect: Double, in available: CGSize) -> CGSize {
+        let aspect = max(aspect, 0.01)
+        var width = available.width
+        var height = width / aspect
+        if height > available.height {
+            height = available.height
+            width = height * aspect
+        }
+        return CGSize(width: max(width, 1), height: max(height, 1))
     }
 }
 
@@ -144,12 +189,12 @@ struct TransportBar: View {
                 .frame(width: 70, alignment: .leading)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
     }
 
     /// `mm:ss.f`
     static func timecode(_ seconds: Double) -> String {
-        let clamped = max(0, seconds)
+        let clamped = max(0, seconds.isFinite ? seconds : 0)
         let minutes = Int(clamped) / 60
         let secs = clamped - Double(minutes * 60)
         return String(format: "%02d:%04.1f", minutes, secs)

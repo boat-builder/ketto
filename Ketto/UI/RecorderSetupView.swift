@@ -2,23 +2,73 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// The recorder: permission state, display and audio choices, the Record button, and recent projects.
+/// The recorder: permission state, what to capture (a display, a window or a region), audio, camera and
+/// keystroke choices, the Record button, and recent projects.
 struct RecorderSetupView: View {
     let model: AppModel
 
+    enum CaptureMode: String, CaseIterable, Identifiable {
+        case display, window, region
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .display: return "Display"
+            case .window: return "Window"
+            case .region: return "Region"
+            }
+        }
+    }
+
     @State private var displays: [CaptureDisplay] = []
     @State private var selectedDisplayID: CGDirectDisplayID = 0
+    @State private var windows: [CaptureWindow] = []
+    @State private var selectedWindowID: CGWindowID = 0
+    @State private var isLoadingWindows = false
+    @State private var region: CGRect?
+    @State private var regionPanel: RegionSelectionPanel?
     @State private var microphones: [AudioInputDevice] = []
     @State private var selectedMicrophoneID: String = ""
+    @State private var cameras: [CameraDevice] = []
+    @State private var selectedCameraID: String = ""
     @State private var screenRecordingGranted = CapturePermissions.screenRecordingGranted
+    @State private var accessibilityTrusted = CapturePermissions.accessibilityTrusted
     @State private var recentProjects: [RecordingBundle] = []
+    @AppStorage("captureMode") private var captureModeRaw = CaptureMode.display.rawValue
     @AppStorage("recordMicrophone") private var recordMicrophone = true
     @AppStorage("recordSystemAudio") private var recordSystemAudio = true
+    @AppStorage("recordCamera") private var recordCamera = false
+    @AppStorage("captureKeystrokes") private var captureKeystrokes = false
+    @AppStorage("captureAllKeystrokes") private var captureAllKeystrokes = false
+    @AppStorage("hideDesktopIcons") private var hideDesktopIcons = false
     @AppStorage("recordingFrameRate") private var frameRate = 60
     @Environment(\.openSettings) private var openSettings
 
+    private var captureMode: CaptureMode {
+        get { CaptureMode(rawValue: captureModeRaw) ?? .display }
+        nonmutating set { captureModeRaw = newValue.rawValue }
+    }
+
     private var selectedDisplay: CaptureDisplay? {
         displays.first { $0.id == selectedDisplayID } ?? displays.first
+    }
+
+    private var selectedWindow: CaptureWindow? {
+        windows.first { $0.id == selectedWindowID }
+    }
+
+    /// What Record would capture, or nil while the choice is incomplete.
+    private var source: CaptureSource? {
+        switch captureMode {
+        case .display:
+            return selectedDisplay.map { .display($0) }
+        case .window:
+            return selectedWindow.map { .window($0) }
+        case .region:
+            guard let display = selectedDisplay, let region else { return nil }
+            return .region(display, region)
+        }
     }
 
     var body: some View {
@@ -29,6 +79,7 @@ struct RecorderSetupView: View {
                     permissionBanner
                 }
                 captureSettings
+                inputSettings
                 recordRow
                 sharingRow
                 recentProjectsSection
@@ -47,6 +98,9 @@ struct RecorderSetupView: View {
         .onChange(of: model.libraryRevision) { _, _ in
             recentProjects = ProjectLibrary.recentProjects()
         }
+        .onChange(of: captureModeRaw) { _, _ in
+            if captureMode == .window { refreshWindows() }
+        }
     }
 
     // MARK: - Sections
@@ -56,7 +110,7 @@ struct RecorderSetupView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ketto")
                     .font(.largeTitle.weight(.bold))
-                Text("Record a display. Zooms, cursor smoothing and framing are generated for you.")
+                Text("Record a display, a window or a region. Zooms, cursor smoothing and framing are generated for you.")
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -91,15 +145,31 @@ struct RecorderSetupView: View {
         GroupBox("Capture") {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                 GridRow {
-                    Text("Display")
+                    Text("Source")
                         .gridColumnAlignment(.trailing)
-                    Picker("Display", selection: $selectedDisplayID) {
-                        ForEach(displays) { display in
-                            Text(label(for: display)).tag(display.id)
+                    Picker("Source", selection: Binding(get: { captureMode }, set: { captureMode = $0 })) {
+                        ForEach(CaptureMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
                         }
                     }
+                    .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(maxWidth: 360, alignment: .leading)
+                    .frame(maxWidth: 300, alignment: .leading)
+                }
+                switch captureMode {
+                case .display:
+                    displayRow
+                case .window:
+                    windowRow
+                case .region:
+                    displayRow
+                    regionRow
+                }
+                if captureMode != .window {
+                    GridRow {
+                        Text("Desktop")
+                        Toggle("Hide desktop icons while recording", isOn: $hideDesktopIcons)
+                    }
                 }
                 GridRow {
                     Text("Frame rate")
@@ -111,8 +181,78 @@ struct RecorderSetupView: View {
                     .labelsHidden()
                     .frame(maxWidth: 200, alignment: .leading)
                 }
+            }
+            .padding(8)
+        }
+    }
+
+    private var displayRow: some View {
+        GridRow {
+            Text("Display")
+            Picker("Display", selection: $selectedDisplayID) {
+                ForEach(displays) { display in
+                    Text(label(for: display)).tag(display.id)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 360, alignment: .leading)
+        }
+    }
+
+    private var windowRow: some View {
+        GridRow {
+            Text("Window")
+            HStack(spacing: 10) {
+                if !screenRecordingGranted {
+                    Text("Windows can be listed once Screen Recording access is granted.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("Window", selection: $selectedWindowID) {
+                        if windows.isEmpty {
+                            Text(isLoadingWindows ? "Looking for windows…" : "No windows found").tag(CGWindowID(0))
+                        }
+                        ForEach(windows) { window in
+                            Text(window.displayName).tag(window.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 360, alignment: .leading)
+                    Button {
+                        refreshWindows()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .help("Refresh the window list")
+                    .disabled(isLoadingWindows)
+                }
+            }
+        }
+    }
+
+    private var regionRow: some View {
+        GridRow {
+            Text("Region")
+            HStack(spacing: 10) {
+                Button(region == nil ? "Select Region…" : "Change Region…") { selectRegion() }
+                    .disabled(selectedDisplay == nil)
+                if let region {
+                    Text("\(Int(region.width.rounded())) × \(Int(region.height.rounded())) pt")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else {
+                    Text("Drag out the area to record on the chosen display.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var inputSettings: some View {
+        GroupBox("Audio, Camera and Keyboard") {
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
                 GridRow {
                     Text("Microphone")
+                        .gridColumnAlignment(.trailing)
                     HStack(spacing: 12) {
                         Toggle("Record microphone", isOn: $recordMicrophone)
                             .labelsHidden()
@@ -135,9 +275,63 @@ struct RecorderSetupView: View {
                     Toggle("Record system audio", isOn: $recordSystemAudio)
                         .labelsHidden()
                 }
+                GridRow {
+                    Text("Camera")
+                    HStack(spacing: 12) {
+                        Toggle("Record camera", isOn: $recordCamera)
+                            .labelsHidden()
+                        Picker("Camera", selection: $selectedCameraID) {
+                            ForEach(cameras) { device in
+                                Text(device.isDefault ? "\(device.name) (Default)" : device.name).tag(device.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .disabled(!recordCamera || cameras.isEmpty)
+                        .frame(maxWidth: 300, alignment: .leading)
+                        if cameras.isEmpty {
+                            Text("No camera found")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                GridRow {
+                    Text("Keyboard")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("Capture keyboard shortcuts to show on screen", isOn: keystrokesToggle)
+                        if captureKeystrokes {
+                            if accessibilityTrusted {
+                                Toggle("Also capture everything typed", isOn: $captureAllKeystrokes)
+                                if captureAllKeystrokes {
+                                    Text("Typed text, including passwords, is stored in the project. Leave this off unless you need it.")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
+                            } else {
+                                Text("Keystroke capture needs Accessibility access. Enable Ketto under System Settings → Privacy & Security → Accessibility, then relaunch.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button("Open System Settings") { CapturePermissions.openAccessibilitySettings() }
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                }
             }
             .padding(8)
         }
+    }
+
+    private var keystrokesToggle: Binding<Bool> {
+        Binding(
+            get: { captureKeystrokes },
+            set: { enabled in
+                captureKeystrokes = enabled
+                if enabled {
+                    accessibilityTrusted = CapturePermissions.requestAccessibility()
+                }
+            }
+        )
     }
 
     private var recordRow: some View {
@@ -154,9 +348,9 @@ struct RecorderSetupView: View {
             .tint(.red)
             .controlSize(.large)
             .keyboardShortcut("r", modifiers: .command)
-            .disabled(selectedDisplay == nil || !screenRecordingGranted)
+            .disabled(source == nil || !screenRecordingGranted)
             VStack(alignment: .leading, spacing: 2) {
-                Text("A 3-second countdown runs first. Stop from the floating control at the bottom of the display.")
+                Text("A 3-second countdown runs first. Pause and stop from the floating control at the bottom of the display.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Text("Recordings are saved to \(ProjectLibrary.defaultDirectory.path).")
@@ -215,18 +409,47 @@ struct RecorderSetupView: View {
 
     private func refresh() {
         screenRecordingGranted = CapturePermissions.screenRecordingGranted
+        accessibilityTrusted = CapturePermissions.accessibilityTrusted
         refreshDisplays()
         microphones = AudioInputDevice.available()
         if !microphones.contains(where: { $0.id == selectedMicrophoneID }) {
             selectedMicrophoneID = microphones.first(where: \.isDefault)?.id ?? microphones.first?.id ?? ""
         }
+        cameras = CameraDevice.available()
+        if !cameras.contains(where: { $0.id == selectedCameraID }) {
+            selectedCameraID = cameras.first(where: \.isDefault)?.id ?? cameras.first?.id ?? ""
+        }
         recentProjects = ProjectLibrary.recentProjects()
+        if captureMode == .window { refreshWindows() }
     }
 
     private func refreshDisplays() {
         displays = DisplayEnumerator.displays()
         if !displays.contains(where: { $0.id == selectedDisplayID }) {
             selectedDisplayID = displays.first(where: \.isMain)?.id ?? displays.first?.id ?? 0
+            region = nil
+        }
+    }
+
+    private func refreshWindows() {
+        guard screenRecordingGranted, !isLoadingWindows else { return }
+        isLoadingWindows = true
+        let displays = displays
+        Task {
+            let found = (try? await WindowEnumerator.windows(displays: displays)) ?? []
+            windows = found
+            if !found.contains(where: { $0.id == selectedWindowID }) {
+                selectedWindowID = found.first?.id ?? 0
+            }
+            isLoadingWindows = false
+        }
+    }
+
+    private func selectRegion() {
+        guard let display = selectedDisplay, regionPanel == nil else { return }
+        regionPanel = RegionSelectionPanel.present(on: display, initial: region) { rect in
+            if let rect { region = rect }
+            regionPanel = nil
         }
     }
 
@@ -239,17 +462,27 @@ struct RecorderSetupView: View {
     }
 
     private func record() {
-        guard let display = selectedDisplay else { return }
+        guard let source else { return }
         guard CapturePermissions.screenRecordingGranted else {
             requestScreenRecording()
             return
         }
+        let keystrokes: KeystrokeCaptureMode
+        if captureKeystrokes, CapturePermissions.accessibilityTrusted {
+            keystrokes = captureAllKeystrokes ? .everything : .shortcuts
+        } else {
+            keystrokes = .off
+        }
         let configuration = RecordingConfiguration(
-            display: display,
+            source: source,
             fps: frameRate,
             recordMicrophone: recordMicrophone && !microphones.isEmpty,
             microphoneDeviceID: selectedMicrophoneID.isEmpty ? nil : selectedMicrophoneID,
-            recordSystemAudio: recordSystemAudio
+            recordSystemAudio: recordSystemAudio,
+            recordCamera: recordCamera && !cameras.isEmpty,
+            cameraDeviceID: selectedCameraID.isEmpty ? nil : selectedCameraID,
+            keystrokes: keystrokes,
+            hideDesktopIcons: hideDesktopIcons
         )
         model.startRecording(configuration: configuration)
     }

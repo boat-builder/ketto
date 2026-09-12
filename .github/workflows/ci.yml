@@ -1,6 +1,6 @@
 name: ci
 
-# PR gate: the project has to build and its 71 unit tests have to pass before a
+# PR gate: the project has to build and its unit tests have to pass before a
 # merge to main, because every merge to main cuts a signed release
 # (.github/workflows/release.yml) and there is no other gate in front of it.
 #
@@ -12,6 +12,9 @@ name: ci
 
 on:
   pull_request:
+  # Work branches get the same gate on every push, so a branch can be verified before a PR exists.
+  push:
+    branches: ['claude/**']
   workflow_dispatch:
 
 concurrency:

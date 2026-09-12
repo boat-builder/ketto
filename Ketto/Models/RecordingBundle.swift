@@ -35,10 +35,14 @@ struct RecordingBundle: Equatable, Hashable, Sendable {
     var eventsURL: URL { url.appendingPathComponent("events.json") }
     var editURL: URL { url.appendingPathComponent("edit.json") }
     var thumbnailURL: URL { url.appendingPathComponent("thumbnail.png") }
+    /// Files computed from the source media (a processed voice track, for instance). Safe to delete: everything
+    /// in here is rebuilt on demand, and the source media is never touched.
+    var derivedDirectory: URL { url.appendingPathComponent("derived", isDirectory: true) }
 
     var hasMicTrack: Bool { FileManager.default.fileExists(atPath: micURL.path) }
     var hasSystemAudioTrack: Bool { FileManager.default.fileExists(atPath: systemAudioURL.path) }
     var hasScreenRecording: Bool { FileManager.default.fileExists(atPath: screenURL.path) }
+    var hasCameraTrack: Bool { FileManager.default.fileExists(atPath: cameraURL.path) }
 
     /// Creates the package directory (and parents) if needed.
     @discardableResult

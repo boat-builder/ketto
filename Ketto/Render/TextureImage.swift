@@ -82,6 +82,28 @@ struct BGRAImage: Equatable, Sendable {
         return data as Data
     }
 
+    /// A Metal-compatible, IOSurface-backed BGRA pixel buffer holding this image, for upload through
+    /// `SourceTextureUploader`.
+    func makePixelBuffer() -> CVPixelBuffer? {
+        var created: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ]
+        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &created) == kCVReturnSuccess,
+              let buffer = created else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let stride = CVPixelBufferGetBytesPerRow(buffer)
+        bytes.withUnsafeBytes { source in
+            for row in 0..<height {
+                base.advanced(by: row * stride).copyMemory(from: source.baseAddress!.advanced(by: row * bytesPerRow), byteCount: bytesPerRow)
+            }
+        }
+        return buffer
+    }
+
     /// Nearest-neighbour downscale used for thumbnails.
     func downscaled(toWidth targetWidth: Int) -> BGRAImage {
         guard targetWidth < width, targetWidth > 0 else { return self }

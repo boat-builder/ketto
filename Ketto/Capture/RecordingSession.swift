@@ -1,14 +1,39 @@
 import Foundation
 @preconcurrency import AVFoundation
 import AppKit
+import Observation
 
 struct RecordingConfiguration: Sendable {
-    var display: CaptureDisplay
+    var source: CaptureSource
     var fps: Int = 60
     var recordMicrophone: Bool = true
     var microphoneDeviceID: String?
     var recordSystemAudio: Bool = true
+    var recordCamera: Bool = false
+    var cameraDeviceID: String?
+    var keystrokes: KeystrokeCaptureMode = .off
+    var hideDesktopIcons: Bool = false
     var destinationDirectory: URL = ProjectLibrary.defaultDirectory
+
+    init(source: CaptureSource, fps: Int = 60, recordMicrophone: Bool = true, microphoneDeviceID: String? = nil, recordSystemAudio: Bool = true, recordCamera: Bool = false, cameraDeviceID: String? = nil, keystrokes: KeystrokeCaptureMode = .off, hideDesktopIcons: Bool = false, destinationDirectory: URL = ProjectLibrary.defaultDirectory) {
+        self.source = source
+        self.fps = fps
+        self.recordMicrophone = recordMicrophone
+        self.microphoneDeviceID = microphoneDeviceID
+        self.recordSystemAudio = recordSystemAudio
+        self.recordCamera = recordCamera
+        self.cameraDeviceID = cameraDeviceID
+        self.keystrokes = keystrokes
+        self.hideDesktopIcons = hideDesktopIcons
+        self.destinationDirectory = destinationDirectory
+    }
+
+    /// Display-only recording, as v1 configured it.
+    init(display: CaptureDisplay, fps: Int = 60, recordMicrophone: Bool = true, microphoneDeviceID: String? = nil, recordSystemAudio: Bool = true, destinationDirectory: URL = ProjectLibrary.defaultDirectory) {
+        self.init(source: .display(display), fps: fps, recordMicrophone: recordMicrophone, microphoneDeviceID: microphoneDeviceID, recordSystemAudio: recordSystemAudio, destinationDirectory: destinationDirectory)
+    }
+
+    var display: CaptureDisplay { source.display }
 }
 
 struct RecordingStatistics: Sendable {
@@ -20,9 +45,11 @@ struct RecordingStatistics: Sendable {
     var pixelHeight: Int
 }
 
-/// Orchestrates one recording: screen + system audio (ScreenCaptureKit), microphone (AVFoundation) and the
-/// event track, all aligned on one clock, written into a fresh `.ketto` bundle.
-@MainActor
+/// Orchestrates one recording: screen + system audio (ScreenCaptureKit), microphone and camera (AVFoundation)
+/// and the event track, all aligned on one clock, written into a fresh `.ketto` bundle. Pausing stops the
+/// clock: samples and events that arrive during a pause are dropped, and everything after it is retimed so
+/// the recording is one continuous file.
+@Observable @MainActor
 final class RecordingSession {
     enum State: Equatable {
         case idle, starting, recording, stopping, finished, failed
@@ -32,23 +59,24 @@ final class RecordingSession {
     let bundle: RecordingBundle
     let clock = RecordingClock()
     private(set) var state: State = .idle
+    private(set) var isPaused = false
     private(set) var statistics: RecordingStatistics?
-    private var engine: ScreenCaptureEngine?
-    private var microphone: MicrophoneCapture?
-    private var microphoneWriter: AlignedAudioWriter?
-    private var eventRecorder: EventRecorder
-    private var startedAt: Date?
-    var onUnexpectedStop: (@MainActor (Error?) -> Void)?
+    @ObservationIgnored private var engine: ScreenCaptureEngine?
+    @ObservationIgnored private var microphone: MicrophoneCapture?
+    @ObservationIgnored private var microphoneWriter: AlignedAudioWriter?
+    @ObservationIgnored private var camera: CameraCapture?
+    @ObservationIgnored private var eventRecorder: EventRecorder
+    @ObservationIgnored var onUnexpectedStop: (@MainActor (Error?) -> Void)?
 
     init(configuration: RecordingConfiguration) {
         self.configuration = configuration
         self.bundle = RecordingBundle(url: ProjectLibrary.newBundleURL(in: configuration.destinationDirectory))
-        self.eventRecorder = EventRecorder(display: configuration.display)
+        self.eventRecorder = EventRecorder(source: configuration.source, keystrokes: configuration.keystrokes)
     }
 
+    /// Recording time so far, pauses excluded.
     var elapsed: TimeInterval {
-        guard let startedAt else { return 0 }
-        return Date().timeIntervalSince(startedAt)
+        clock.elapsedRecordingTime()
     }
 
     func start() async throws {
@@ -59,12 +87,16 @@ final class RecordingSession {
             if configuration.recordMicrophone {
                 guard await CapturePermissions.requestMicrophone() else { throw CaptureError.microphoneDenied }
             }
+            if configuration.recordCamera {
+                guard await CapturePermissions.requestCamera() else { throw CaptureError.cameraDenied }
+            }
             try RecordingBundle.create(at: bundle.url)
 
             let engineConfiguration = ScreenCaptureConfiguration(
-                display: configuration.display,
+                source: configuration.source,
                 fps: configuration.fps,
                 captureSystemAudio: configuration.recordSystemAudio,
+                hideDesktopIcons: configuration.hideDesktopIcons,
                 screenURL: bundle.screenURL,
                 systemAudioURL: configuration.recordSystemAudio ? bundle.systemAudioURL : nil
             )
@@ -78,7 +110,7 @@ final class RecordingSession {
             try await engine.start()
             let pixelSize = engine.capturedPixelSize
             if pixelSize.width > 0 {
-                eventRecorder.updateSourceScale(Double(pixelSize.width) / max(configuration.display.frame.width, 1))
+                eventRecorder.updateSourceScale(Double(pixelSize.width) / max(configuration.source.frame.width, 1))
             }
 
             if configuration.recordMicrophone {
@@ -88,15 +120,36 @@ final class RecordingSession {
                 self.microphone = microphone
                 microphone.start()
             }
+            if configuration.recordCamera {
+                let camera = try CameraCapture(deviceID: configuration.cameraDeviceID, url: bundle.cameraURL, clock: clock)
+                self.camera = camera
+                camera.start()
+            }
 
             eventRecorder.start()
-            startedAt = Date()
             state = .recording
         } catch {
             state = .failed
             await teardownAfterFailure()
             throw error
         }
+    }
+
+    /// Stops the clock. Nothing is written until `resume()`.
+    func pause() {
+        guard state == .recording, !isPaused else { return }
+        clock.pause()
+        isPaused = true
+    }
+
+    func resume() {
+        guard state == .recording, isPaused else { return }
+        clock.resume()
+        isPaused = false
+    }
+
+    func togglePause() {
+        if isPaused { resume() } else { pause() }
     }
 
     /// Stops capture, finalises media, derives the event track and auto-zooms, and returns the bundle.
@@ -106,19 +159,25 @@ final class RecordingSession {
         eventRecorder.stop()
         let hostNow = RecordingClock.now()
         let epochNow = Date().timeIntervalSince1970
+        if isPaused {
+            clock.resume(at: hostNow)
+            isPaused = false
+        }
 
         try await engine?.stop()
         await microphone?.stop()
         microphone = nil
+        await camera?.stop()
+        camera = nil
 
         guard let engine, let videoWriter = engine.videoWriter, let base = clock.base, videoWriter.appendedFrames > 0 else {
             state = .failed
             throw CaptureError.noFramesCaptured
         }
-        let duration = max(videoWriter.duration, hostNow - base)
+        let duration = max(videoWriter.duration, clock.elapsedRecordingTime(at: hostNow))
         let pixelSize = engine.capturedPixelSize
         let events = eventRecorder.makeDocument(
-            timeBase: base,
+            clock: clock,
             duration: duration,
             recordingStartEpoch: epochNow - (hostNow - base),
             pixelWidth: pixelSize.width,
@@ -128,6 +187,7 @@ final class RecordingSession {
 
         var edit = EditDocument.default
         edit.zooms = AutoZoomGenerator().generate(events: events)
+        edit.camera.enabled = bundle.hasCameraTrack
         try bundle.write(edit: edit)
 
         statistics = RecordingStatistics(
@@ -148,8 +208,10 @@ final class RecordingSession {
         eventRecorder.stop()
         try? await engine?.stop()
         await microphone?.stop()
+        await camera?.stop()
         engine = nil
         microphone = nil
+        camera = nil
         if (try? FileManager.default.contentsOfDirectory(atPath: bundle.url.path))?.isEmpty ?? false {
             try? FileManager.default.removeItem(at: bundle.url)
         }

@@ -71,7 +71,8 @@ final class VideoTrackWriter: @unchecked Sendable {
         return SCFrameStatus(rawValue: raw)
     }
 
-    /// Appends a screen sample buffer from ScreenCaptureKit. Returns false if the frame was dropped.
+    /// Appends a screen sample buffer from ScreenCaptureKit. Returns false if the frame was dropped. Frames
+    /// captured during a pause are dropped, and frames after a pause are retimed so the movie stays continuous.
     @discardableResult
     func append(_ sampleBuffer: CMSampleBuffer) -> Bool {
         guard !failed, CMSampleBufferGetImageBuffer(sampleBuffer) != nil else { return false }
@@ -86,7 +87,9 @@ final class VideoTrackWriter: @unchecked Sendable {
             writer.startSession(atSourceTime: pts)
             firstPresentationTime = pts
         }
-        if let last = lastPresentationTime, pts <= last { return false }
+        guard let first = firstPresentationTime, let recordingTime = clock.recordingTime(forHost: pts.seconds) else { return false }
+        let retimed = recordingTime == pts.seconds - first.seconds ? pts : CMTime(seconds: first.seconds + recordingTime, preferredTimescale: pts.timescale)
+        if let last = lastPresentationTime, retimed <= last { return false }
         guard writer.status == .writing else {
             failed = true
             return false
@@ -95,14 +98,31 @@ final class VideoTrackWriter: @unchecked Sendable {
             droppedFrames += 1
             return false
         }
-        if input.append(sampleBuffer) {
+        let buffer: CMSampleBuffer
+        if retimed == pts {
+            buffer = sampleBuffer
+        } else if let copy = Self.retimed(sampleBuffer, to: retimed) {
+            buffer = copy
+        } else {
+            droppedFrames += 1
+            return false
+        }
+        if input.append(buffer) {
             appendedFrames += 1
-            lastPresentationTime = pts
+            lastPresentationTime = retimed
             return true
         }
         droppedFrames += 1
         if writer.status == .failed { failed = true }
         return false
+    }
+
+    /// A copy of `sampleBuffer` presented at `time` (the pixel data is shared, not copied).
+    static func retimed(_ sampleBuffer: CMSampleBuffer, to time: CMTime) -> CMSampleBuffer? {
+        var timing = CMSampleTimingInfo(duration: CMSampleBufferGetDuration(sampleBuffer), presentationTimeStamp: time, decodeTimeStamp: .invalid)
+        var copy: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sampleBuffer, sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleBufferOut: &copy)
+        return status == noErr ? copy : nil
     }
 
     var error: Error? { writer.error }
@@ -125,7 +145,9 @@ final class VideoTrackWriter: @unchecked Sendable {
 enum CaptureError: Error, LocalizedError {
     case screenRecordingDenied
     case microphoneDenied
+    case cameraDenied
     case displayNotFound
+    case windowNotFound
     case writerSetupFailed(String)
     case noFramesCaptured
     case streamStopped(Error?)
@@ -134,7 +156,9 @@ enum CaptureError: Error, LocalizedError {
         switch self {
         case .screenRecordingDenied: return "Screen Recording permission is required. Enable Ketto in System Settings → Privacy & Security → Screen Recording."
         case .microphoneDenied: return "Microphone permission was denied. Enable Ketto in System Settings → Privacy & Security → Microphone, or turn off microphone recording."
+        case .cameraDenied: return "Camera permission was denied. Enable Ketto in System Settings → Privacy & Security → Camera, or turn off camera recording."
         case .displayNotFound: return "The selected display is no longer available."
+        case .windowNotFound: return "The selected window is no longer open."
         case .writerSetupFailed(let reason): return "Could not start the recording: \(reason)"
         case .noFramesCaptured: return "No frames were captured."
         case .streamStopped(let error): return "The capture stream stopped: \(error?.localizedDescription ?? "unknown error")"

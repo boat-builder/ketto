@@ -63,7 +63,7 @@ final class HotKeyCenter {
                 EventParamName(kEventParamDirectObject),
                 EventParamType(typeEventHotKeyID),
                 nil,
-                ByteCount(MemoryLayout<EventHotKeyID>.size),
+                MemoryLayout<EventHotKeyID>.size,
                 nil,
                 &hotKeyID
             )
@@ -71,10 +71,10 @@ final class HotKeyCenter {
             let identifier = hotKeyID.id
             // Carbon delivers application-target events on the main thread.
             MainActor.assumeIsolated {
-                HotKeyCenter.current?.dispatch(identifier)
+                _ = HotKeyCenter.current?.dispatch(identifier)
             }
             return 0
-        }, ItemCount(1), &spec, nil, &installed)
+        }, 1, &spec, nil, &installed)
         guard status == 0, let installed else { return }
         handlerRef = installed
         for action in Action.allCases {

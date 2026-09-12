@@ -188,7 +188,7 @@ struct PreviewPane: View {
                 }
             }
         }
-        .colorScheme(.dark)
+        .environment(\.colorScheme, .dark)
     }
 
     static func fit(aspect: Double, in available: CGSize) -> CGSize {

@@ -37,7 +37,7 @@ almost every task needs one slice of it, not the whole thing.
 | [docs/SPEC.md](docs/SPEC.md) | ~530 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~345 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, sharing, expected build warnings | Touching existing engine, render, playback, capture, export or sharing code |
 | [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
-| `Ketto/Resources/CloudflareBackend/worker.js` | ~390 | The sharing backend the app deploys to the user's Cloudflare account; its header is the HTTP contract | Touching sharing, on either side |
+| `Ketto/Resources/CloudflareBackend/worker.js` | ~970 | The sharing backend the app deploys to the user's Cloudflare account, including the viewer page share links open; its header is the HTTP contract | Touching sharing, on either side |
 
 ### Picking one section out of the spec
 
@@ -154,7 +154,15 @@ the frame under the playhead as an image.
 **Share Link**, in the same sheet, renders the video as MP4 (the only format the backend
 serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
 a link like `https://share.example.com/v/…` that works for about three days; a finished
-MP4 export offers the same with Share…. Settings › Sharing sets this up through your coding
+MP4 export offers the same with Share….
+
+The link opens a player page rather than the bare file: play/pause, a scrubber with buffered
+range and hover preview, 0.5× to 2× speed, volume, picture in picture, full screen, a download
+button and the usual keyboard shortcuts (space, J/K/L, arrows, M, F, 0–9). One page serves
+every link — the Worker renders it per request and streams the video from `/f/<id>` — so the
+player can be changed for every link that already exists by redeploying the Worker.
+
+Settings › Sharing sets this up through your coding
 agent: it needs `wrangler` on this Mac, logged in to a Cloudflare account that already holds
 the domain you want the links on. Enter the domain, press Copy Prompt, paste the prompt into
 your agent (Claude Code, Codex, Cursor…), and Ketto connects on its own once the Worker

@@ -3,74 +3,70 @@
 A macOS screen recorder that produces polished videos automatically — smooth cursor
 motion, well-timed zooms into the action, and attractive framing, with no manual editing.
 
-**Status:** v1 (the vertical slice) is **done** — capture → auto-zoom → cursor smoothing
-→ framing → live preview → MP4 export, working end to end. It builds under Swift 6 strict
-concurrency on Xcode 26.6, the 47 unit tests pass, export runs at 4.94× real time at
-1080p60 and 1.59× at 4K60, and every acceptance criterion in [SPEC.md](SPEC.md) §6 has
-been checked on real hardware. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how
-the pipeline behaves, and [SPEC.md](SPEC.md) for the full spec and the v2–v4 roadmap.
+Swift 6 · SwiftUI · Metal · ScreenCaptureKit · AVFoundation · VideoToolbox · macOS 14+
 
-## Stack
+## Status
 
-Swift 6 · SwiftUI · Metal · ScreenCaptureKit · AVFoundation · VideoToolbox
-Target: macOS 14.0+
+| Milestone | Scope | State |
+|---|---|---|
+| **v1** Vertical slice | Capture → auto-zoom → cursor smoothing → framing → MP4 export | ✅ **Done** |
+| **v2** Timeline editor | Manual zoom editing, trim/cut, webcam, aspect presets, masking | Not started |
+| **v3** Publishing | YouTube (OAuth + resumable), S3/R2, shareable links | Not started |
+| **v4** Auto subtitles | Local Whisper transcription, word-level timing, burn-in | Not started |
+
+v1 is complete and verified: clean build under Swift 6 strict concurrency on Xcode 26.6,
+47 unit tests passing, export at 4.94× real time at 1080p60 and 1.59× at 4K60, and every
+acceptance criterion in the spec checked on real hardware. Nothing beyond v1 has begun —
+no timeline, trim, webcam, aspect presets, masking, publishing or captions exist yet.
+
+## Where to look
+
+Read this file first, then **only the section you need**. The spec is ~450 lines and
+almost every task needs one slice of it, not the whole thing.
+
+| File | Lines | What it is | Read when |
+|---|---|---|---|
+| `README.md` | ~115 | This index: status, build, test, doc map | Always — start here |
+| [docs/SPEC.md](docs/SPEC.md) | ~450 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~120 | How the shipped v1 code behaves: tuning constants, invariants, expected build warnings | Touching existing engine, render, playback or export code |
+
+### Picking one section out of the spec
+
+| You need | Section of `docs/SPEC.md` |
+|---|---|
+| Why the stack is what it is | §2 Stack decision |
+| How the pipeline fits together, and the four invariants not to break | §3 Architecture |
+| `events.json`, `edit.json`, `.recordito` schemas | §4 Data formats |
+| Auto-zoom, cursor smoothing, cursor rendering | §5 Core algorithms |
+| **What to build next** — scope and acceptance criteria per milestone | §6 Milestones |
+| Permissions, performance targets, testing strategy | §7 Cross-cutting concerns |
+| Still undecided | §8 Open questions |
+
+Each milestone in §6 is self-contained: its own in-scope list, explicit non-goals, and
+acceptance criteria. To implement a slice, read §6 for that milestone plus whichever of
+§3–§5 it touches.
 
 ## Build and run
 
-Requirements: macOS 14 or later, Xcode 16 or later (the project uses synchronized folder
-groups, so every file under `Recordito/` and `RecorditoTests/` is part of the build).
+Requires macOS 14+ and Xcode 16+. The project uses synchronized folder groups, so every
+file under `Recordito/` and `RecorditoTests/` is in the build automatically.
 
-**On Xcode 26 and later, install the Metal toolchain first.** Apple unbundled it from the
-Xcode app, and this project compiles `Render/Shaders.metal`, so without it every build
-fails with `cannot execute tool 'metal' due to missing Metal Toolchain`:
+**On Xcode 26+, install the Metal toolchain first** — Apple unbundled it, and this project
+compiles `Render/Shaders.metal`, so without it every build fails with `cannot execute tool
+'metal'`. One-time, ~690 MB, no `sudo`:
 
 ```bash
 xcodebuild -downloadComponent MetalToolchain
 ```
 
-It is a ~690 MB one-time download and needs no `sudo`; `xcodebuild -showComponent
-MetalToolchain` reports whether it is already installed.
-
 ```bash
 xcodebuild build -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64'
 ```
 
-Or open `Recordito.xcodeproj` in Xcode and run the `Recordito` scheme.
-
-The project is signed ad hoc with no team. macOS ties the Screen Recording permission
-to the code signature, so an ad-hoc build may be asked for permission again after a
-rebuild. Set your development team in the target's Signing settings for a stable
+Or open `Recordito.xcodeproj` in Xcode and run the `Recordito` scheme. Signing is ad hoc
+with no team, and macOS keys Screen Recording permission to the code signature, so each
+rebuild can re-prompt — set your team in the target's Signing settings for a stable
 identity.
-
-## Permissions
-
-| Permission | When it is requested | Notes |
-|---|---|---|
-| Screen Recording | The first time you press Record | If macOS has already denied it, the recorder shows a button that opens System Settings → Privacy & Security → Screen Recording. Relaunch Recordito after granting access. |
-| Microphone | When a recording starts with the microphone enabled | Turn the microphone off in the recorder to avoid the prompt entirely. |
-
-Accessibility is never requested: mouse events come from global `NSEvent` monitors and
-window-focus changes from the window server.
-
-## Using it
-
-1. **Record.** Pick a display, choose whether to record the microphone and system audio,
-   and press Record. The main window hides, a floating control appears at the bottom of
-   the recorded display, and a 3-2-1 countdown runs. Press Stop on the floating control
-   when you are done. The control never appears in the recording.
-2. **Edit.** The project opens in the editor: a live preview on the left and the inspector
-   on the right (background, frame padding and corner radius, shadow, cursor size and
-   smoothing, auto-zoom intensity, motion blur). Space plays and pauses; the arrow keys
-   step one frame. Every change is saved to the project's `edit.json` automatically.
-3. **Export.** Export… (⌘E) renders an MP4 (H.264 High profile, AAC audio) at 1080p,
-   1440p or 4K and 30 or 60 fps, then reveals it in the Finder.
-
-Projects are saved as `.recordito` packages in `~/Movies/Recordito`. A package contains
-the untouched screen recording (`screen.mov`, cursor not baked in), the microphone and
-system audio as separate tracks (`mic.caf`, `system.caf`), the event track
-(`events.json`) and every editing decision (`edit.json`). Source media is never
-rewritten. Open a package from the recorder's Recent Projects list, with Open Project…
-(⌘O), or by double-clicking it in the Finder.
 
 ## Tests
 
@@ -78,10 +74,11 @@ rewritten. Open a package from the recorder's Recent Projects list, with Open Pr
 xcodebuild test -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64'
 ```
 
-The suite covers the document schemas and bundle I/O, auto-zoom generation, cursor
-smoothing, the camera path, frame composition, audio alignment, the renderer
-(golden-frame comparisons against committed reference PNGs) and the export pipeline on a
-synthetic recording. Nothing in the suite needs a display, permissions, or a capture.
+47 tests covering the document schemas and bundle I/O, auto-zoom, cursor smoothing, the
+camera path, frame composition, audio alignment, the renderer (golden-frame comparisons
+against committed PNGs) and the export pipeline. None of it needs a display, permissions
+or a capture. Two opt-in throughput benchmarks are skipped by default — see
+`RecorditoTests/ExportThroughputTests.swift` for how to run them.
 
 Re-record the golden frames after an intentional renderer change:
 
@@ -89,41 +86,30 @@ Re-record the golden frames after an intentional renderer change:
 TEST_RUNNER_RECORDITO_UPDATE_GOLDEN=1 xcodebuild test -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -only-testing:RecorditoTests/GoldenFrameTests
 ```
 
-`ExportThroughputTests` exports two synthetic minutes at 1080p60 and 4K60 and asserts the
-speed targets. It is skipped by default and wants a Release build, which is what its
-numbers describe:
+## Using it
 
-```bash
-xcodebuild build-for-testing -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -configuration Release ENABLE_TESTABILITY=YES ENABLE_HARDENED_RUNTIME=NO
-```
+Pick a display, choose microphone and system audio, press Record. The main window hides, a
+floating control appears on the recorded display (never captured), and a 3-2-1 countdown
+runs. On Stop the project opens in the editor — live preview left, inspector right
+(background, padding, corner radius, shadow, cursor size and smoothing, auto-zoom
+intensity, motion blur). Space plays, arrow keys step a frame, edits autosave. Export…
+(⌘E) renders an MP4 at 1080p/1440p/4K and 30/60 fps.
 
-```bash
-TEST_RUNNER_RECORDITO_RUN_BENCHMARKS=1 xcodebuild test-without-building -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -configuration Release -only-testing:RecorditoTests/ExportThroughputTests
-```
+Projects are `.recordito` packages in `~/Movies/Recordito`, holding the untouched screen
+recording (cursor not baked in), microphone and system audio as separate tracks, the event
+track, and every editing decision. Source media is never rewritten.
 
-Both overrides are needed: Release turns `ENABLE_TESTABILITY` off, which `@testable
-import` requires, and its hardened runtime refuses to load an ad-hoc-signed `.xctest`
-bundle into the app.
+## Invariants
 
-## Roadmap
+Break these and the design stops working. Rationale in `docs/SPEC.md` §3.
 
-| | Milestone | Scope |
-|---|---|---|
-| **v1** ✅ | Vertical slice | Capture → auto-zoom → cursor smoothing → framing → MP4 export |
-| **v2** | Timeline editor | Manual zoom editing, trim/cut, webcam, aspect presets, masking |
-| **v3** | Publishing | YouTube (OAuth + resumable) and S3/R2, shareable unlisted links |
-| **v4** | Auto subtitles | Local Whisper transcription, word-level timing, burn-in |
-
-## Key design decisions
-
-1. **Persist an event track, not just pixels** — cursor, clicks, and focus changes go to
-   `events.json`; auto-zoom derives from that, never from frame analysis.
-2. **Never pre-mix audio** — mic and system audio stay separate on disk.
+1. **Persist an event track, not just pixels** — auto-zoom derives from `events.json`,
+   never from frame analysis.
+2. **Never pre-mix audio** — mic and system audio stay separate on disk. v4 transcription
+   depends on this.
 3. **Render is a pure function** — `(sources, editDoc, time) -> frame`, shared by preview
-   and export.
-4. **Publishing is a protocol** — resolved at the end of the pipeline, so destinations are
+   and export, so the two cannot diverge.
+4. **Publishing is a protocol** — resolved at the end of the pipeline, destinations
    swappable.
-5. **Record with the cursor hidden** (`showsCursor = false`) and composite our own — this
-   flag gates cursor smoothing, scaling, click highlights, and auto-hide.
-
-Rationale for all of the above is in [SPEC.md](SPEC.md).
+5. **Record with the cursor hidden** and composite our own — this gates cursor smoothing,
+   scaling, click highlights, and auto-hide.

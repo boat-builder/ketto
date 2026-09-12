@@ -2,7 +2,7 @@
 
 How the shipped v1 pipeline actually behaves: the tuning constants, the invariants, and
 the things that are easy to break by accident. The rationale for the design lives in
-[SPEC.md](../SPEC.md); this is the operational detail underneath it.
+[SPEC.md](SPEC.md); this is the operational detail underneath it.
 
 ## Engine
 

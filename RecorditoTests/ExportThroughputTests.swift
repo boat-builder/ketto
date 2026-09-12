@@ -3,7 +3,7 @@ import XCTest
 import CoreMedia
 @testable import Recordito
 
-/// Opt-in throughput benchmark for the v1 acceptance criteria in SPEC.md section 6: a two-minute export must
+/// Opt-in throughput benchmark for the v1 acceptance criteria in docs/SPEC.md section 6: a two-minute export must
 /// finish faster than real time at 1080p60, and at no worse than half real time at 4K60.
 ///
 /// It is skipped by default because it writes a two-minute source movie and renders every frame of it; run it

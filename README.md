@@ -3,14 +3,12 @@
 A macOS screen recorder that produces polished videos automatically — smooth cursor
 motion, well-timed zooms into the action, and attractive framing, with no manual editing.
 
-**Status:** v1 (the vertical slice) is implemented end to end: capture → auto-zoom →
-cursor smoothing → framing → live preview → MP4 export. It builds under Swift 6 strict
-concurrency on Xcode 26.6, the unit tests pass (47), the app launches, and export
-throughput is measured at 4.94× real time at 1080p60 and 1.59× at 4K60. What is still
-open is the part that needs a real recording, and so a person to grant the permission
-prompts: dropped frames and CPU at 4K60, auto-zoom targeting, and cursor accuracy. See
-[docs/V1-STATUS.md](docs/V1-STATUS.md) for the verification results and the manual
-checklist, and [SPEC.md](SPEC.md) for the full implementation spec.
+**Status:** v1 (the vertical slice) is **done** — capture → auto-zoom → cursor smoothing
+→ framing → live preview → MP4 export, working end to end. It builds under Swift 6 strict
+concurrency on Xcode 26.6, the 47 unit tests pass, export runs at 4.94× real time at
+1080p60 and 1.59× at 4K60, and every acceptance criterion in [SPEC.md](SPEC.md) §6 has
+been checked on real hardware. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how
+the pipeline behaves, and [SPEC.md](SPEC.md) for the full spec and the v2–v4 roadmap.
 
 ## Stack
 
@@ -92,14 +90,26 @@ TEST_RUNNER_RECORDITO_UPDATE_GOLDEN=1 xcodebuild test -project Recordito.xcodepr
 ```
 
 `ExportThroughputTests` exports two synthetic minutes at 1080p60 and 4K60 and asserts the
-speed targets. It is skipped unless `RECORDITO_RUN_BENCHMARKS=1` and wants a Release
-build; the exact invocation is in [docs/V1-STATUS.md](docs/V1-STATUS.md).
+speed targets. It is skipped by default and wants a Release build, which is what its
+numbers describe:
+
+```bash
+xcodebuild build-for-testing -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -configuration Release ENABLE_TESTABILITY=YES ENABLE_HARDENED_RUNTIME=NO
+```
+
+```bash
+TEST_RUNNER_RECORDITO_RUN_BENCHMARKS=1 xcodebuild test-without-building -project Recordito.xcodeproj -scheme Recordito -destination 'platform=macOS,arch=arm64' -configuration Release -only-testing:RecorditoTests/ExportThroughputTests
+```
+
+Both overrides are needed: Release turns `ENABLE_TESTABILITY` off, which `@testable
+import` requires, and its hardened runtime refuses to load an ad-hoc-signed `.xctest`
+bundle into the app.
 
 ## Roadmap
 
 | | Milestone | Scope |
 |---|---|---|
-| **v1** | Vertical slice | Capture → auto-zoom → cursor smoothing → framing → MP4 export |
+| **v1** ✅ | Vertical slice | Capture → auto-zoom → cursor smoothing → framing → MP4 export |
 | **v2** | Timeline editor | Manual zoom editing, trim/cut, webcam, aspect presets, masking |
 | **v3** | Publishing | YouTube (OAuth + resumable) and S3/R2, shareable unlisted links |
 | **v4** | Auto subtitles | Local Whisper transcription, word-level timing, burn-in |

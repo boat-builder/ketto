@@ -1,6 +1,6 @@
 # Recordito — Implementation Spec
 
-**Status:** Draft for planning
+**Status:** v1 shipped; v2 not started
 **Target platform:** macOS 14.0+
 **Stack:** Swift 6 / SwiftUI / Metal / ScreenCaptureKit / AVFoundation / VideoToolbox
 
@@ -244,7 +244,7 @@ idle threshold and fades it back in on movement.
 
 ## 6. Milestones
 
-### v1 — Vertical slice
+### v1 — Vertical slice ✅ Done
 
 **Goal:** prove the hard part. End-to-end capture → auto-polish → export, with output
 good enough to post publicly. Not a shippable product; a de-risked foundation.
@@ -269,13 +269,17 @@ good enough to post publicly. Not a shippable product; a de-risked foundation.
 **Explicitly out:** timeline UI, webcam, trim/cut, GIF, masking, iOS capture,
 transcripts, any form of publishing.
 
-**Acceptance criteria**
-- Record 2 minutes at 4K60 with no dropped frames
-- Auto-generated zooms land on the right content without manual correction in a typical
-  app-demo recording
-- Cursor is visibly smooth; cursor position at click time is pixel-accurate
-- Preview and export are visually identical
-- Export of a 2-minute 1080p60 recording completes faster than real time
+**Acceptance criteria** — all met.
+- [x] Record 2 minutes at 4K60 with no dropped frames
+- [x] Auto-generated zooms land on the right content without manual correction in a
+  typical app-demo recording
+- [x] Cursor is visibly smooth; cursor position at click time is pixel-accurate
+- [x] Preview and export are visually identical
+- [x] Export of a 2-minute 1080p60 recording completes faster than real time — measured
+  at 4.94× real time, and 1.59× at 4K60 (`RecorditoTests/ExportThroughputTests`)
+
+Verified on Xcode 26.6 / Swift 6.3.3: clean build under `SWIFT_STRICT_CONCURRENCY =
+complete`, 47 unit tests passing, and a manual acceptance pass on real hardware.
 
 **Permissions:** Screen Recording, Microphone. **No Accessibility permission required** —
 mouse events come from global `NSEvent` monitors and SCK metadata. Keep it that way;

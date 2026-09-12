@@ -56,6 +56,8 @@ final class Exporter: @unchecked Sendable {
     /// Where the finished file is written. Callers typically pass a temporary location and hand the result to a
     /// `PublishDestination`.
     let outputURL: URL
+    /// The processed voice track to use instead of `mic.caf`, when noise removal or normalisation produced one.
+    let voiceURL: URL?
 
     private let queue = DispatchQueue(label: "cc.ketto.export", qos: .userInitiated)
     private let cancelRequested = OSAllocatedUnfairLock(initialState: false)
@@ -85,12 +87,13 @@ final class Exporter: @unchecked Sendable {
     private var finished = false
     private var startedAt = CFAbsoluteTimeGetCurrent()
 
-    init(bundle: RecordingBundle, events: EventsDocument, edit: EditDocument, settings: ExportSettings, outputURL: URL) {
+    init(bundle: RecordingBundle, events: EventsDocument, edit: EditDocument, settings: ExportSettings, outputURL: URL, voiceURL: URL? = nil) {
         self.bundle = bundle
         self.events = events
         self.edit = edit
         self.settings = settings
         self.outputURL = outputURL
+        self.voiceURL = voiceURL
     }
 
     var isCancelled: Bool { cancelRequested.withLock { $0 } }
@@ -130,7 +133,9 @@ final class Exporter: @unchecked Sendable {
         let videoTracks = try await screenAsset.loadTracks(withMediaType: .video)
         guard let videoTrack = videoTracks.first else { throw ExportError.noVideoTrack }
         let assetDuration = try await screenAsset.load(.duration).seconds
-        let duration = max(events.duration, assetDuration.isFinite ? assetDuration : 0)
+        // The composer lays the edited timeline over the recording; every output frame maps to a source time.
+        let composer = FrameComposer(edit: edit, events: events, source: SourceInfo(display: events.display), sourceDuration: assetDuration.isFinite ? assetDuration : 0)
+        let duration = composer.duration
         self.duration = duration
         totalFrames = max(1, Int((duration * Double(settings.fps)).rounded(.up)))
         let durationTime = CMTime(seconds: duration, preferredTimescale: CMTimeScale(ExportSettings.audioSampleRate))
@@ -145,24 +150,17 @@ final class Exporter: @unchecked Sendable {
         guard videoReader.canAdd(videoOutput) else { throw ExportError.readerSetupFailed }
         videoReader.add(videoOutput)
 
-        // Audio: both tracks into one composition, mixed by the reader. Nothing on disk is touched.
-        let composition = AVMutableComposition()
-        var audioTracks: [AVAssetTrack] = []
-        for url in [bundle.micURL, bundle.systemAudioURL] where FileManager.default.fileExists(atPath: url.path) {
-            let asset = AVURLAsset(url: url)
-            guard let track = try await asset.loadTracks(withMediaType: .audio).first else { continue }
-            let audioDuration = try await asset.load(.duration)
-            let length = CMTimeMinimum(audioDuration, durationTime)
-            guard length.seconds > 0,
-                  let compositionTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
-            try compositionTrack.insertTimeRange(CMTimeRange(start: .zero, duration: length), of: track, at: .zero)
-            audioTracks.append(compositionTrack)
-        }
+        // Audio: both tracks laid on the edited timeline in one composition (the same one the player uses),
+        // mixed by the reader with the document's volumes. Nothing on disk is touched.
+        let media = try await CompositionBuilder.screenMedia(for: PlaybackSource(bundle: bundle, timeline: composer.timeline, audio: edit.audio, micURL: voiceURL))
+        let audioTracks = media.composition.tracks(withMediaType: .audio)
         var audioReader: AVAssetReader?
         var audioOutput: AVAssetReaderAudioMixOutput?
         if !audioTracks.isEmpty {
-            let reader = try AVAssetReader(asset: composition)
+            let reader = try AVAssetReader(asset: media.composition)
             let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: ExportSettings.audioDecodeSettings)
+            output.audioMix = media.audioMix
+            output.audioTimePitchAlgorithm = .spectral
             output.alwaysCopiesSampleData = false
             guard reader.canAdd(output) else { throw ExportError.readerSetupFailed }
             reader.add(output)
@@ -213,7 +211,7 @@ final class Exporter: @unchecked Sendable {
         self.adaptor = adaptor
         self.renderer = renderer
         self.uploader = SourceTextureUploader(device: renderer.device)
-        self.composer = FrameComposer(edit: edit, events: events, source: SourceInfo(display: events.display))
+        self.composer = composer
     }
 
     // MARK: - Queue work
@@ -302,12 +300,14 @@ final class Exporter: @unchecked Sendable {
         }
     }
 
-    /// Renders output frame `index` (time `index / fps`) into a pooled pixel buffer and appends it.
+    /// Renders output frame `index` (time `index / fps`) into a pooled pixel buffer and appends it. The source
+    /// frame is the one at the recording time the edited timeline maps that output time to; clips are in
+    /// recording order, so the reader only ever moves forwards.
     private func renderFrame(index: Int, adaptor: AVAssetWriterInputPixelBufferAdaptor) throws {
         guard let renderer, let uploader, let composer else { throw ExportError.renderFailed }
         let fps = Double(settings.fps)
         let t = Double(index) / fps
-        let (sourceFrame, changed) = try sourceFrame(at: t)
+        let (sourceFrame, changed) = try sourceFrame(at: composer.sourceTime(forOutput: t))
 
         guard let pool = adaptor.pixelBufferPool else { throw ExportError.pixelBufferPoolUnavailable }
         var created: CVPixelBuffer?

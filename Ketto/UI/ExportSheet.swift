@@ -32,7 +32,7 @@ final class ExportController {
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("Ketto-\(UUID().uuidString)")
             .appendingPathExtension("mp4")
-        let exporter = Exporter(bundle: session.bundle, events: session.events, edit: session.edit, settings: settings, outputURL: temporaryURL)
+        let exporter = Exporter(bundle: session.bundle, events: session.events, edit: session.edit, settings: settings, outputURL: temporaryURL, voiceURL: session.processedVoiceURL)
         self.exporter = exporter
         state = .running(.zero)
         let started = Date()

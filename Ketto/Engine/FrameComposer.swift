@@ -132,29 +132,35 @@ struct FrameComposer: Sendable {
     let keys: [KeyEvent]
     let cameraDodge: CameraDodgeSchedule?
     let cameraAvailable: Bool
+    /// Length of the recording in seconds: the event track's duration, or the media's when that is longer.
+    let sourceDuration: Double
 
     static let rippleDuration = 0.6
     static let maxMasks = 8
 
-    init(edit: EditDocument, events: EventsDocument, source: SourceInfo, cameraAvailable: Bool = false) {
+    /// - Parameter sourceDuration: the length of `screen.mov` when known; the event track's duration is used
+    ///   when it is longer or when nothing is supplied.
+    init(edit: EditDocument, events: EventsDocument, source: SourceInfo, cameraAvailable: Bool = false, sourceDuration: Double? = nil) {
         let track = CursorSmoother.smooth(events: events, parameters: Self.cursorParameters(for: edit))
-        self.init(edit: edit, events: events, source: source, cursorTrack: track, cameraAvailable: cameraAvailable)
+        self.init(edit: edit, events: events, source: source, cursorTrack: track, cameraAvailable: cameraAvailable, sourceDuration: sourceDuration)
     }
 
     /// Builds a composer around an already smoothed cursor track. The editor uses this so that changing the
     /// background or padding does not re-run cursor smoothing; the track only depends on `cursorParameters(for:)`.
     /// `zoomTimeline` may likewise be supplied prebuilt (see `makeZoomTimeline`) when nothing it depends on changed.
-    init(edit: EditDocument, events: EventsDocument, source: SourceInfo, cursorTrack: CursorTrack, cameraAvailable: Bool = false, zoomTimeline: ZoomTimeline? = nil) {
+    init(edit: EditDocument, events: EventsDocument, source: SourceInfo, cursorTrack: CursorTrack, cameraAvailable: Bool = false, zoomTimeline: ZoomTimeline? = nil, sourceDuration: Double? = nil) {
         self.edit = edit
         self.events = events
         self.source = source
         self.cursorTrack = cursorTrack
         self.cameraAvailable = cameraAvailable
+        let duration = Self.resolvedSourceDuration(events: events, sourceDuration: sourceDuration)
+        self.sourceDuration = duration
         let framing = Self.framing(edit: edit, source: source)
         self.framing = framing
         self.layout = CanvasLayout.compute(canvas: edit.canvas, style: edit.style, sourceAspect: Self.contentAspect(framing: framing, source: source))
-        self.timeline = EditTimeline(edit: edit, sourceDuration: events.duration)
-        self.zoomTimeline = zoomTimeline ?? Self.makeZoomTimeline(edit: edit, events: events, source: source, cursorTrack: cursorTrack, framing: framing)
+        self.timeline = EditTimeline(edit: edit, sourceDuration: duration)
+        self.zoomTimeline = zoomTimeline ?? Self.makeZoomTimeline(edit: edit, events: events, source: source, cursorTrack: cursorTrack, framing: framing, sourceDuration: duration)
         self.clicks = events.clicks.filter { $0.phase == .down }.sorted { $0.t < $1.t }
         self.keys = (edit.keystrokes.shortcutsOnly ? events.keys.filter(\.isShortcut) : events.keys).sorted { $0.t < $1.t }
 
@@ -167,7 +173,7 @@ struct FrameComposer: Sendable {
             let zoomTimeline = self.zoomTimeline
             let sourceSize = source.size
             let contentRect = layout.contentRect
-            self.cameraDodge = CameraDodgeSchedule.make(duration: events.duration) { t in
+            self.cameraDodge = CameraDodgeSchedule.make(duration: duration) { t in
                 guard cursorTrack.opacity(at: t) > 0.05 else { return false }
                 let viewport = zoomTimeline.viewport(at: t)
                 let normalised = cursorTrack.position(at: t) / sourceSize
@@ -178,6 +184,11 @@ struct FrameComposer: Sendable {
         } else {
             self.cameraDodge = nil
         }
+    }
+
+    static func resolvedSourceDuration(events: EventsDocument, sourceDuration: Double?) -> Double {
+        let media = sourceDuration ?? 0
+        return max(events.duration, media.isFinite ? media : 0, 0)
     }
 
     /// The smoothing parameters implied by an edit document. Two documents with equal parameters share a cursor track.
@@ -213,8 +224,9 @@ struct FrameComposer: Sendable {
     /// The camera path: the idle camera for `fill` framing plus every zoom, both following the smoothed
     /// cursor. Depends only on the active zooms, the framing, the events and the cursor track, so the editor
     /// caches it across inspector changes that touch none of those.
-    static func makeZoomTimeline(edit: EditDocument, events: EventsDocument, source: SourceInfo, cursorTrack: CursorTrack, framing: ZoomFraming) -> ZoomTimeline {
+    static func makeZoomTimeline(edit: EditDocument, events: EventsDocument, source: SourceInfo, cursorTrack: CursorTrack, framing: ZoomFraming, sourceDuration: Double? = nil) -> ZoomTimeline {
         let sourceSize = source.size
+        let duration = resolvedSourceDuration(events: events, sourceDuration: sourceDuration)
         let follow: (Double) -> SIMD2<Double>? = { t in
             cursorTrack.isEmpty ? nil : cursorTrack.position(at: t) / sourceSize
         }
@@ -222,7 +234,7 @@ struct FrameComposer: Sendable {
         if framing.base.isApproximatelyEqual(to: framing.bounds) {
             idleCamera = nil
         } else {
-            idleCamera = FramingTrack.make(duration: events.duration, size: framing.base.size, bounds: framing.bounds, pointOfInterest: follow)
+            idleCamera = FramingTrack.make(duration: duration, size: framing.base.size, bounds: framing.bounds, pointOfInterest: follow)
         }
         return ZoomTimeline(zooms: activeZooms(in: edit), base: framing.base, bounds: framing.bounds, framing: idleCamera, follow: follow)
     }
@@ -231,6 +243,14 @@ struct FrameComposer: Sendable {
     var duration: Double { timeline.outputDuration }
 
     func sourceTime(forOutput t: Double) -> Double { timeline.sourceTime(forOutput: t) }
+
+    func outputTime(forSource t: Double) -> Double { timeline.outputTime(forSource: t) }
+
+    /// The smoothed cursor position at source time `t`, normalised (0–1), or nil without a cursor track.
+    func cursorPosition(atSource t: Double) -> SIMD2<Double>? {
+        guard !cursorTrack.isEmpty else { return nil }
+        return cursorTrack.position(at: t) / source.size
+    }
 
     /// Maps a source-pixel position to canvas pixels for a given viewport.
     func canvasPoint(fromSource p: SIMD2<Double>, viewport: Viewport) -> SIMD2<Double> {

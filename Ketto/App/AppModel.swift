@@ -210,6 +210,25 @@ final class AppModel {
         isExportSheetPresented = true
     }
 
+    /// Renders the frame under the playhead at canvas resolution and puts it on the clipboard as an image.
+    func copyCurrentFrame() {
+        guard let session = currentProject else { return }
+        let composer = session.composer
+        let bundle = session.bundle
+        let time = session.player.currentTime
+        Task { [weak self] in
+            do {
+                let image = try await StillFrameRenderer.render(composer: composer, bundle: bundle, outputTime: time)
+                guard let cgImage = image.cgImage() else { throw RenderError.textureCreationFailed }
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.writeObjects([NSImage(cgImage: cgImage, size: NSSize(width: image.width, height: image.height))])
+            } catch {
+                self?.errorMessage = "Could not copy the frame: \(error.localizedDescription)"
+            }
+        }
+    }
+
     // MARK: - Termination
 
     /// Quitting mid-recording stops the capture first so the bundle is finalised.

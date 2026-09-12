@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Ketto records your screen to produce polished videos. Screen Recording access is required to capture the display you choose.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ketto records your voice as a separate audio track alongside the screen recording.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<!-- Sparkle in-app updates. The feed is republished by .github/workflows/release.yml
+	     on every release; SUPublicEDKey is the public half of the EdDSA key that signs the
+	     update archive, and stays the placeholder until Scripts/generate-sparkle-keys.sh has
+	     been run once (docs/RELEASING.md). While it is the placeholder the app simply does not
+	     start Sparkle, and the release workflow refuses to publish. -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/boat-builder/ketto/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>+iop2lwAi9KhEvLJ7Bmkk381l2DFpUbFrXjX+uuHYv0=</string>
+	<!-- Check daily and install in the background, so a user who never opens a menu still ends
+	     up on the current build. Sparkle's own update window lets them turn either off. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Ketto Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSTypeIsPackage</key>
+			<true/>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>cc.ketto.project</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>cc.ketto.project</string>
+			<key>UTTypeDescription</key>
+			<string>Ketto Project</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ketto</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

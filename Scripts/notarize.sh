@@ -2,8 +2,8 @@
 # Submit one artifact to Apple's notary service, wait for the verdict, and fail
 # loudly with the reason when it is not "Accepted".
 #
-#   Scripts/notarize.sh path/to/Recordito.zip
-#   Scripts/notarize.sh path/to/Recordito-1.2.3.dmg
+#   Scripts/notarize.sh path/to/Ketto.zip
+#   Scripts/notarize.sh path/to/Ketto-1.2.3.dmg
 #
 # Needs APPLE_ID, APPLE_PASSWORD (an app-specific password) and APPLE_TEAM_ID in
 # the environment — the same three the release workflow passes. A bare

@@ -1,4 +1,4 @@
-# Recordito — Implementation Spec
+# Ketto — Implementation Spec
 
 **Status:** v1 shipped; v2 not started
 **Target platform:** macOS 14.0+
@@ -82,7 +82,7 @@ elsewhere.
 │ NSEvent/CGEventTap → clicks, keystrokes, focus     │
 └────────────────────────┬───────────────────────────┘
                          ▼
-┌─ .recordito bundle (non-destructive) ──────────────┐
+┌─ .ketto bundle (non-destructive) ──────────────────┐
 │  screen.mov  mic.caf  system.caf  camera.mov       │
 │  events.json   ← cursor/click/key track            │
 │  edit.json     ← zooms, cuts, style, captions      │
@@ -148,10 +148,10 @@ I-beam, pointing hand, resize) in the event track so the renderer draws the righ
 
 ## 4. Data formats
 
-### Project bundle: `Name.recordito/` (a directory, `NSFileWrapper`)
+### Project bundle: `Name.ketto/` (a directory, `NSFileWrapper`)
 
 ```
-Name.recordito/
+Name.ketto/
 ├── screen.mov          # captured frames, cursor NOT baked in
 ├── mic.caf             # separate track
 ├── system.caf          # separate track
@@ -253,7 +253,7 @@ good enough to post publicly. Not a shippable product; a de-risked foundation.
 - Screen capture via ScreenCaptureKit: display selection, multi-display aware
 - System audio + microphone capture, as **separate** tracks
 - Event track capture: cursor position + type, clicks, window focus
-- `.recordito` bundle read/write; `events.json` and `edit.json` schemas
+- `.ketto` bundle read/write; `events.json` and `edit.json` schemas
 - Auto-zoom generation
 - Cursor smoothing, cursor scaling, custom cursor compositing
 - Metal render pipeline: zoom/pan transform, background (solid + gradient), padding,
@@ -276,7 +276,7 @@ transcripts, any form of publishing.
 - [x] Cursor is visibly smooth; cursor position at click time is pixel-accurate
 - [x] Preview and export are visually identical
 - [x] Export of a 2-minute 1080p60 recording completes faster than real time — measured
-  at 4.94× real time, and 1.59× at 4K60 (`RecorditoTests/ExportThroughputTests`)
+  at 4.94× real time, and 1.59× at 4K60 (`KettoTests/ExportThroughputTests`)
 
 Verified on Xcode 26.6 / Swift 6.3.3: clean build under `SWIFT_STRICT_CONCURRENCY =
 complete`, 47 unit tests passing, and a manual acceptance pass on real hardware.
@@ -425,7 +425,7 @@ explanation of why. Never request Accessibility at launch.
   render regressions and against preview/export divergence.
 - **Algorithm unit tests** on synthetic event tracks for auto-zoom clustering and cursor
   smoothing — deterministic, no capture required.
-- **Fixture recordings** committed as small `.recordito` bundles so the whole team can
+- **Fixture recordings** committed as small `.ketto` bundles so the whole team can
   iterate on the renderer without recording anything.
 
 ### Non-goals (for now)

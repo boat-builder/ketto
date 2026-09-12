@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Ketto logo</title>
+  <desc id="desc">A coral recording dot inside a simple open coral loop on a deep violet app icon.</desc>
+  <rect x="40" y="40" width="944" height="944" rx="224" fill="#2D126B"/>
+  <circle
+    cx="512"
+    cy="512"
+    r="264"
+    fill="none"
+    stroke="#FF625F"
+    stroke-width="112"
+    stroke-linecap="round"
+    stroke-dasharray="1393 266"
+    transform="rotate(-29 512 512)"
+  />
+  <circle cx="512" cy="512" r="92" fill="#FF625F"/>
+</svg>

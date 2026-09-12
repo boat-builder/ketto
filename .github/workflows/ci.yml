@@ -6,7 +6,7 @@ name: ci
 #
 # None of the tests need a display, a capture permission or a recording — see
 # the Tests section of README.md — so a headless runner is enough. The two
-# throughput benchmarks in RecorditoTests/ExportThroughputTests.swift skip
+# throughput benchmarks in KettoTests/ExportThroughputTests.swift skip
 # themselves by default; leave them that way, CI hardware says nothing useful
 # about export speed.
 
@@ -51,17 +51,17 @@ jobs:
       - name: Resolve Swift package dependencies
         run: |
           xcodebuild -resolvePackageDependencies \
-            -project Recordito.xcodeproj \
-            -scheme Recordito
+            -project Ketto.xcodeproj \
+            -scheme Ketto
 
       - name: Build and test
         run: |
           set -euo pipefail
           xcodebuild test \
-            -project Recordito.xcodeproj \
-            -scheme Recordito \
+            -project Ketto.xcodeproj \
+            -scheme Ketto \
             -destination 'platform=macOS,arch=arm64' \
-            -resultBundlePath "$RUNNER_TEMP/RecorditoTests.xcresult" \
+            -resultBundlePath "$RUNNER_TEMP/KettoTests.xcresult" \
             | tee "$RUNNER_TEMP/xcodebuild.log"
 
       - name: Upload test results
@@ -70,7 +70,7 @@ jobs:
         with:
           name: test-results
           path: |
-            ${{ runner.temp }}/RecorditoTests.xcresult
+            ${{ runner.temp }}/KettoTests.xcresult
             ${{ runner.temp }}/xcodebuild.log
           retention-days: 7
           if-no-files-found: ignore

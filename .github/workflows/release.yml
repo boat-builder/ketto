@@ -7,7 +7,7 @@ name: release
 #                     release behind it.
 #   2. `bump`         computes the next version — a patch bump of the latest
 #                     `v*` tag. To cut a minor/major instead, raise
-#                     MARKETING_VERSION in Recordito.xcodeproj/project.pbxproj in
+#                     MARKETING_VERSION in Ketto.xcodeproj/project.pbxproj in
 #                     your commit; a file version higher than the latest tag is
 #                     used verbatim. The version is stamped into every
 #                     MARKETING_VERSION and CURRENT_PROJECT_VERSION in the
@@ -15,12 +15,12 @@ name: release
 #   3. `build-release` archives a universal (arm64 + x86_64) build, signs it with
 #                     Developer ID, notarizes and staples it, and publishes a
 #                     GitHub Release holding:
-#                       Recordito-<version>.dmg   drag-to-Applications installer
-#                       Recordito-macos.dmg       version-less alias, so
+#                       Ketto-<version>.dmg       drag-to-Applications installer
+#                       Ketto-macos.dmg           version-less alias, so
 #                                                 releases/latest/download/ is stable
-#                       Recordito-<version>.zip   the artifact Sparkle installs
+#                       Ketto-<version>.zip       the artifact Sparkle installs
 #                       appcast.xml               the Sparkle feed the app polls
-#                       Recordito-<version>-dSYMs.zip
+#                       Ketto-<version>-dSYMs.zip
 #                       SHA256SUMS
 #
 # Signing is REQUIRED — there is no unsigned fallback, and the job fails before
@@ -44,7 +44,7 @@ name: release
 #   APPLE_PASSWORD          app-specific password for that Apple ID
 #   APPLE_TEAM_ID           10-character team ID
 #   SPARKLE_PRIVATE_KEY     EdDSA private key from Scripts/generate-sparkle-keys.sh.
-#                           Its public half is committed in Recordito/Info.plist
+#                           Its public half is committed in Ketto/Info.plist
 #                           under SUPublicEDKey; the two must be a pair or every
 #                           installed copy will reject the update it downloads.
 #
@@ -86,8 +86,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild test \
-            -project Recordito.xcodeproj \
-            -scheme Recordito \
+            -project Ketto.xcodeproj \
+            -scheme Ketto \
             -destination 'platform=macOS,arch=arm64'
 
   # -------------------------------------------------------------- version bump
@@ -110,9 +110,9 @@ jobs:
         run: |
           set -euo pipefail
           file_v="$(sed -n -E 's/.*MARKETING_VERSION = ([0-9]+\.[0-9]+\.[0-9]+);.*/\1/p' \
-            Recordito.xcodeproj/project.pbxproj | head -n1)"
+            Ketto.xcodeproj/project.pbxproj | head -n1)"
           if [ -z "$file_v" ]; then
-            echo "::error::could not read MARKETING_VERSION out of Recordito.xcodeproj/project.pbxproj"
+            echo "::error::could not read MARKETING_VERSION out of Ketto.xcodeproj/project.pbxproj"
             exit 1
           fi
           last_tag="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
@@ -150,7 +150,7 @@ jobs:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
           set -euo pipefail
-          proj=Recordito.xcodeproj/project.pbxproj
+          proj=Ketto.xcodeproj/project.pbxproj
           sed -i -E "s/MARKETING_VERSION = [^;]+;/MARKETING_VERSION = $VERSION;/g" "$proj"
           sed -i -E "s/CURRENT_PROJECT_VERSION = [^;]+;/CURRENT_PROJECT_VERSION = $VERSION;/g" "$proj"
           marketing="$(grep -c "MARKETING_VERSION = $VERSION;" "$proj")"
@@ -190,7 +190,7 @@ jobs:
       VERSION: ${{ needs.bump.outputs.version }}
       TAG: ${{ needs.bump.outputs.tag }}
       PREVIOUS_TAG: ${{ needs.bump.outputs.previous_tag }}
-      APP_NAME: Recordito
+      APP_NAME: Ketto
     steps:
       # Fail here, before the expensive build, if anything needed to sign,
       # notarize or sign the update is missing.
@@ -227,9 +227,9 @@ jobs:
       - name: Require a real Sparkle public key
         run: |
           set -euo pipefail
-          key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Recordito/Info.plist 2>/dev/null || true)"
+          key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Ketto/Info.plist 2>/dev/null || true)"
           if [ -z "$key" ] || [ "$key" = "SPARKLE_PUBLIC_KEY_NOT_SET" ]; then
-            echo "::error::Recordito/Info.plist still carries the SUPublicEDKey placeholder."
+            echo "::error::Ketto/Info.plist still carries the SUPublicEDKey placeholder."
             echo "::error::Run Scripts/generate-sparkle-keys.sh and commit the public key first (docs/RELEASING.md)."
             exit 1
           fi
@@ -279,8 +279,8 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild archive \
-            -project Recordito.xcodeproj \
-            -scheme Recordito \
+            -project Ketto.xcodeproj \
+            -scheme Ketto \
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -archivePath "$RUNNER_TEMP/$APP_NAME.xcarchive" \
@@ -389,7 +389,7 @@ jobs:
           xcrun stapler validate "release-assets/$APP_NAME-$VERSION.dmg"
 
           # Version-less alias (copied AFTER stapling) so
-          # releases/latest/download/Recordito-macos.dmg is a stable URL.
+          # releases/latest/download/Ketto-macos.dmg is a stable URL.
           cp "release-assets/$APP_NAME-$VERSION.dmg" "release-assets/$APP_NAME-macos.dmg"
 
           # dSYMs, for symbolicating a crash report from a shipped build.
@@ -407,7 +407,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          resolved=Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          resolved=Ketto.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
           sparkle_version="$(/usr/bin/python3 -c 'import json,sys; print(next((p["state"]["version"] for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "sparkle"), ""))' "$resolved")"
           if [ -z "$sparkle_version" ]; then
             echo "::error::no pinned Sparkle version in $resolved"
@@ -452,6 +452,6 @@ jobs:
           body: |
             **macOS 14+** universal (Apple Silicon and Intel) `.dmg`, Developer ID signed and notarized — opens with no Gatekeeper prompt.
 
-            Already running Recordito? You do not need this download: the app checks
+            Already running Ketto? You do not need this download: the app checks
             `appcast.xml` on its own and installs the update in place from
-            **Check for Updates…** in the Recordito menu.
+            **Check for Updates…** in the Ketto menu.

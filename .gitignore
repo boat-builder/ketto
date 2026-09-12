@@ -43,7 +43,7 @@ Package.resolved
 # …except the app's own resolved versions: this is a product, not a library, so the
 # Sparkle version is pinned deliberately, and the release workflow reads it back to pick
 # the matching sign_update. Paired with the .xcworkspace carve-out above.
-!Recordito.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+!Ketto.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # Fastlane / provisioning
 *.mobileprovision
@@ -58,7 +58,7 @@ GoogleService-Info.plist
 client_secret*.json
 
 # Recordings and scratch output
-*.recordito/
+*.ketto/
 *.mov
 *.mp4
 *.caf

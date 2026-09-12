@@ -1,9 +1,9 @@
 #!/bin/bash
-# Write the Sparkle appcast — the manifest every installed copy of Recordito
+# Write the Sparkle appcast — the manifest every installed copy of Ketto
 # polls at the SUFeedURL baked into its Info.plist.
 #
 #   VERSION=1.2.3 TAG=v1.2.3 PREVIOUS_TAG=v1.2.2 \
-#   REPO=boat-builder/recordito ASSET_NAME=Recordito-1.2.3.zip \
+#   REPO=boat-builder/ketto ASSET_NAME=Ketto-1.2.3.zip \
 #   SIGNATURE_ATTRIBUTES='sparkle:edSignature="…" length="…"' \
 #   Scripts/make-appcast.sh release-assets/appcast.xml
 #
@@ -62,9 +62,9 @@ cat > "$output" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>Recordito</title>
+    <title>Ketto</title>
     <link>https://github.com/$REPO/releases/latest/download/appcast.xml</link>
-    <description>Updates for Recordito, a macOS screen recorder.</description>
+    <description>Updates for Ketto, a macOS screen recorder.</description>
     <language>en</language>
     <item>
       <title>Version $VERSION</title>
@@ -73,7 +73,7 @@ cat > "$output" <<XML
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$minimum_system_version</sparkle:minimumSystemVersion>
       <link>https://github.com/$REPO/releases/tag/$TAG</link>
-      <description><![CDATA[<h3>Recordito $VERSION</h3><ul>$notes</ul>]]></description>
+      <description><![CDATA[<h3>Ketto $VERSION</h3><ul>$notes</ul>]]></description>
       <enclosure url="https://github.com/$REPO/releases/download/$TAG/$ASSET_NAME" type="application/octet-stream" $SIGNATURE_ATTRIBUTES />
     </item>
   </channel>

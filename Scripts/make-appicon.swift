@@ -1,6 +1,6 @@
 #!/usr/bin/env swift
 //
-//  Rasterises the app icon from recordito-logo.svg into the AppIcon asset catalog.
+//  Rasterises the app icon from ketto-logo.svg into the AppIcon asset catalog.
 //
 //  Run from the repository root after changing the logo:
 //
@@ -13,9 +13,9 @@
 import AppKit
 
 let root = FileManager.default.currentDirectoryPath
-let source = URL(fileURLWithPath: root).appendingPathComponent("recordito-logo.svg")
+let source = URL(fileURLWithPath: root).appendingPathComponent("ketto-logo.svg")
 let iconSet = URL(fileURLWithPath: root)
-    .appendingPathComponent("Recordito/Resources/Assets.xcassets/AppIcon.appiconset")
+    .appendingPathComponent("Ketto/Resources/Assets.xcassets/AppIcon.appiconset")
 
 /// The macOS slots an `AppIcon.appiconset` declares: point size, scale, and the pixels that implies.
 let slots: [(points: Int, scale: Int)] = [
@@ -37,7 +37,7 @@ guard let image = NSImage(contentsOf: source) else {
 // remaining 100 pt on each side left transparent — that margin is what the system draws
 // shadows into, and it is why every icon in the Dock reads as the same size.
 //
-// recordito-logo.svg draws its own rounded rect 944 pt wide inside a 1024 pt viewBox, so
+// ketto-logo.svg draws its own rounded rect 944 pt wide inside a 1024 pt viewBox, so
 // rendering it edge to edge would sit ~15% oversized next to other apps. Scaling the whole
 // SVG canvas by 824/944 lands its rect exactly on the grid, and because the rect is
 // centred in the viewBox, centring the scaled canvas centres the rect. This is a
@@ -45,7 +45,7 @@ guard let image = NSImage(contentsOf: source) else {
 //
 // If the logo's own inset changes, update `artworkRect` to match its new rect width.
 let canvas = 1024.0
-let artworkRect = 944.0   // width of the rounded rect drawn inside recordito-logo.svg
+let artworkRect = 944.0   // width of the rounded rect drawn inside ketto-logo.svg
 let appleGrid = 824.0     // width macOS wants that rect to be on a 1024 canvas
 let drawFraction = appleGrid / artworkRect
 let insetFraction = (1 - drawFraction) / 2

@@ -13,7 +13,7 @@ struct EditorView: View {
                 Divider()
                 TransportBar(session: session)
                 Divider()
-                TimelineView(session: session)
+                EditorTimelineView(session: session)
                 if let statistics = model.lastRecordingStatistics, statistics.droppedFrames > 0 {
                     Divider()
                     Text("\(statistics.droppedFrames) frames were dropped during capture.")

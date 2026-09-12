@@ -25,7 +25,7 @@ struct TimelineGeometry: Equatable {
 /// filmstrip and waveforms are drawn in `Canvas` layers that only cover the visible window, so a long
 /// project costs the same to draw as a short one. The playhead lives in its own view, so scrubbing moves one
 /// small view instead of re-laying out the tracks.
-struct TimelineView: View {
+struct EditorTimelineView: View {
     @Bindable var session: ProjectSession
 
     @State private var viewportWidth: CGFloat = 0
@@ -345,7 +345,7 @@ private struct PlayheadView: View {
             Image(systemName: "arrowtriangle.down.fill")
                 .font(.system(size: 9))
                 .foregroundStyle(Color.red)
-                .offset(y: TimelineView.rulerHeight - 10)
+                .offset(y: EditorTimelineView.rulerHeight - 10)
         }
         .frame(width: 11, height: height, alignment: .top)
         .offset(x: x - 5)

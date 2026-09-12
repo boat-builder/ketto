@@ -171,8 +171,10 @@ final class ExportPipelineTests: XCTestCase {
         let asset = AVURLAsset(url: url)
         let track = try await XCTUnwrap(asset.loadTracks(withMediaType: .video).first)
         let descriptions = try await track.load(.formatDescriptions)
-        XCTAssertEqual(CMFormatDescriptionGetMediaSubType(try XCTUnwrap(descriptions.first)), kCMVideoCodecType_HEVC)
-        XCTAssertEqual(try await asset.load(.duration).seconds, Self.sourceSeconds, accuracy: 0.1)
+        let description = try XCTUnwrap(descriptions.first)
+        XCTAssertEqual(CMFormatDescriptionGetMediaSubType(description), kCMVideoCodecType_HEVC)
+        let duration = try await asset.load(.duration).seconds
+        XCTAssertEqual(duration, Self.sourceSeconds, accuracy: 0.1)
     }
 
     func testExportDrawsTheCameraTrack() async throws {

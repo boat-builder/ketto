@@ -142,13 +142,47 @@ final class ShareSetupBundleTests: XCTestCase {
         XCTAssertNil(ShareSetupBundle.pending(in: directory))
     }
 
-    func testCommandUsesHomeVariableAndQuotes() throws {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let directory = home.appendingPathComponent("Library/Application Support/Ketto/Cloudflare")
-        let bundle = try ShareSetupBundle(domain: "share.example.com", token: "t", directory: directory)
-        XCTAssertEqual(bundle.command, "bash \"$HOME/Library/Application Support/Ketto/Cloudflare/setup.sh\"")
+    /// The wrangler commands the prompt gives the agent; `setup.sh` must run the same ones (see the next test).
+    private static let setupCommands = [
+        "wrangler r2 bucket create ketto-videos",
+        "wrangler r2 bucket lifecycle add ketto-videos ketto-expire --expire-days 3 --abort-multipart-days 1 --force",
+        "wrangler deploy",
+        "wrangler secret put KETTO_TOKEN < secret.txt",
+    ]
+
+    func testPromptNamesTheFolderAndTheStepsButNeverTheToken() throws {
+        let directory = URL(fileURLWithPath: "/Users/someone/Library/Application Support/Ketto/Cloudflare", isDirectory: true)
+        let token = String(repeating: "b", count: 64)
+        let bundle = try ShareSetupBundle(domain: "share.example.com", token: token, directory: directory)
+        let prompt = bundle.prompt
+
+        XCTAssertTrue(prompt.contains("\n  /Users/someone/Library/Application Support/Ketto/Cloudflare\n"))
+        XCTAssertEqual(bundle.scriptCommand, "bash \"/Users/someone/Library/Application Support/Ketto/Cloudflare/setup.sh\"")
+        XCTAssertTrue(prompt.contains("`\(bundle.scriptCommand)`"))
+        for expected in Self.setupCommands + [
+            "custom domain share.example.com",
+            "`curl -s https://share.example.com/`",
+            "{\"service\":\"ketto-share\",\"api\":\(ShareBackendClient.apiVersion)}",
+        ] {
+            XCTAssertTrue(prompt.contains(expected), expected)
+        }
+        XCTAssertFalse(prompt.contains(token), "the token stays in secret.txt, out of the clipboard and the agent's transcript")
+        XCTAssertFalse(prompt.contains("$HOME"), "paths are absolute so the agent's file tools can use them")
+
         XCTAssertEqual(bundle.baseURL.absoluteString, "https://share.example.com")
-        XCTAssertEqual(try bundle.connection().token, "t")
+        XCTAssertEqual(try bundle.connection().token, token)
+    }
+
+    /// The prompt and the bundled script describe the same setup: every command the prompt gives the agent is one
+    /// the script runs, with the bucket name filled in.
+    func testPromptCommandsMatchTheScript() throws {
+        let scriptURL = try XCTUnwrap(ShareSetupBundle.resourceURL(named: "setup.sh", in: .main))
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+            .replacingOccurrences(of: "\"$KETTO_BUCKET\"", with: ShareSetupBundle.bucketName)
+            .replacingOccurrences(of: "< ./secret.txt", with: "< secret.txt")
+        for command in Self.setupCommands {
+            XCTAssertTrue(script.contains(command), command)
+        }
     }
 }
 

@@ -4,12 +4,14 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     let updates = UpdateController()
+    let share = ShareBackend()
 
     /// Sparkle is started here rather than in `init` so the updater never runs before the app has
     /// finished launching. `AppModel` gets a reference so a recording can hold it off — an update
     /// window opening mid-capture would be recorded.
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.updates = updates
+        model.share = share
         updates.start()
     }
 

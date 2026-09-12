@@ -1,8 +1,9 @@
 /**
  * Ketto sharing backend: one Cloudflare Worker in front of a private R2 bucket.
  *
- * Ketto writes this file next to setup.sh and deploys it with wrangler on the user's own
- * Cloudflare account. Finished exports are uploaded here as multipart parts; viewers get
+ * Ketto writes this file next to wrangler.json and setup.sh, and the user's coding agent (or
+ * setup.sh) deploys it with wrangler on the user's own Cloudflare account. Finished exports
+ * are uploaded here as multipart parts; viewers get
  * links to /v/<id>. The bucket is never public, so only this Worker reads or writes it, and
  * only callers holding KETTO_TOKEN can write. A lifecycle rule on the bucket (set up by
  * setup.sh) deletes objects about three days after upload.
@@ -90,7 +91,7 @@ async function route(request, env) {
 
 async function authorize(request, env) {
   if (!env.KETTO_TOKEN) {
-    return json({ error: "The backend has no token yet. Finish the Ketto setup command (it runs `wrangler secret put KETTO_TOKEN`)." }, 503);
+    return json({ error: "The backend has no token yet. Finish the Ketto setup: `wrangler secret put KETTO_TOKEN` has not run." }, 503);
   }
   const header = request.headers.get("Authorization") || "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";

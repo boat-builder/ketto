@@ -1,6 +1,6 @@
 # Ketto — Implementation Spec
 
-**Status:** v1 shipped; v2 not started
+**Status:** v1 shipped; v2 implemented (hardware acceptance pass pending); v3 and v4 not started
 **Target platform:** macOS 14.0+
 **Stack:** Swift 6 / SwiftUI / Metal / ScreenCaptureKit / AVFoundation / VideoToolbox
 
@@ -155,13 +155,19 @@ Name.ketto/
 ├── screen.mov          # captured frames, cursor NOT baked in
 ├── mic.caf             # separate track
 ├── system.caf          # separate track
-├── camera.mov          # v2
+├── camera.mov          # v2: webcam, in recording time
 ├── events.json
 ├── edit.json
-└── thumbnail.png
+├── thumbnail.png
+└── derived/            # v2: rebuildable files computed from the source media
+    └── mic-nr1-norm1.caf   #      the processed voice track, one per option combination
 ```
 
 Fully non-destructive: source media is never rewritten, all edits live in `edit.json`.
+Everything under `derived/` can be deleted and is rebuilt on demand.
+
+All tracks and events are in **recording time**: seconds since the first captured frame,
+with paused stretches removed, so a paused recording is still one continuous file.
 
 ### `events.json`
 
@@ -183,25 +189,50 @@ Coordinates are in source-pixel space. Timestamps are seconds from `recordingSta
 
 ```json
 {
-  "version": 1,
-  "canvas": { "aspect": "16:9", "width": 1920, "height": 1080 },
+  "version": 2,
+  "canvas": { "aspect": "16:9", "width": 1920, "height": 1080, "framing": "fit" },
+  "crop": { "x": 0, "y": 0, "width": 1, "height": 1 },
   "style": {
     "background": { "type": "gradient", "colors": ["#1e3a8a", "#9333ea"], "angle": 135 },
     "padding": 64,
     "cornerRadius": 12,
     "shadow": { "radius": 40, "opacity": 0.35, "y": 20 }
   },
-  "cursor": { "scale": 1.6, "smoothing": 0.8, "hideWhenIdle": true, "clickHighlight": true },
+  "cursor": { "scale": 1.6, "smoothing": 0.8, "hideWhenIdle": true, "clickHighlight": true, "loop": false },
   "zooms": [
     { "id": "z1", "start": 1.1, "duration": 3.2,
-      "target": [0.42, 0.61], "scale": 2.0, "easing": "easeInOutCubic" }
+      "target": [0.42, 0.61], "scale": 2.0, "easing": "easeInOutCubic", "userModified": true }
+  ],
+  "clips": [
+    { "id": "main", "sourceStart": 0, "sourceEnd": 12.5, "speed": 1 },
+    { "id": "clip-7f3a", "sourceStart": 15, "sourceEnd": 30, "speed": 2 }
   ],
   "cuts": [],
+  "camera": { "enabled": true, "shape": "circle", "aspect": 1, "cornerRadius": 24, "size": 0.26,
+              "position": [0.86, 0.82], "border": { "width": 4, "color": "#ffffff" },
+              "shadow": true, "mirrored": false, "dodgeCursor": true },
+  "masks": [
+    { "id": "m1", "type": "blur", "rect": [0.3, 0.3, 0.2, 0.1], "start": 0, "end": 5,
+      "strength": 1, "cornerRadius": 8 }
+  ],
+  "keystrokes": { "enabled": true, "shortcutsOnly": true, "position": "bottom", "scale": 1 },
+  "audio": { "normalize": false, "noiseRemoval": false, "micVolume": 1, "systemVolume": 1 },
+  "autoZoom": { "enabled": true, "intensity": 1 },
+  "effects": { "motionBlur": true },
   "captions": null
 }
 ```
 
-`target` is normalized (0–1) in source space so it survives resolution changes.
+`target`, `crop` and mask `rect`s are normalized (0–1) in source space so they survive
+resolution changes and follow zooms and crops. Zoom, mask and clip times are **source
+(recording) seconds**; `clips` define the edited (output) timeline — source ranges laid end
+to end, each at its own `speed` — and everything the player, the timeline and the exporter
+show is addressed in output seconds and mapped through them. A gap between two clips is a
+cut. `cuts` is the v1 form and is only read when `clips` is empty. `userModified` zooms
+survive regeneration. `canvas.framing` is `fit` (whole crop visible, letterboxed) or
+`fill` (the frame is filled and an idle camera follows the cursor); the 9:16, 1:1 and 4:5
+presets default to `fill`.
+
 Every field must have a sane default — a missing key is never an error.
 
 ---
@@ -287,12 +318,13 @@ Accessibility is a scary prompt and v1 does not need it.
 
 ---
 
-### v2 — Timeline editor
+### v2 — Timeline editor ✅ Implemented
 
 **Goal:** the user can override every automatic decision, and the app becomes a real
 editor.
 
-**In scope**
+**In scope** — all of it is in the tree; see `docs/ARCHITECTURE.md` for how each piece
+behaves.
 - Timeline component: time ruler, playhead, scrub, zoom-level control, thumbnail
   filmstrip, audio waveforms
 - Zoom blocks: add, delete, move, trim, retime, adjust scale and easing, with snapping
@@ -313,10 +345,25 @@ editor.
 - Copy to clipboard
 
 **Acceptance criteria**
-- Timeline stays at 60fps while scrubbing a 10-minute project
-- Every automatic v1 decision is user-overridable, and manual edits survive
-  re-running auto-generation
-- Vertical export produces sensible framing without manual re-targeting of every zoom
+- [ ] Timeline stays at 60fps while scrubbing a 10-minute project — built for it (the
+  playhead is its own view; the ruler, filmstrip and waveforms only draw the visible
+  window; snap targets are computed when a drag starts, not per frame), **not yet measured
+  on hardware**
+- [x] Every automatic v1 decision is user-overridable, and manual edits survive
+  re-running auto-generation — zooms, framing, crop, cursor and audio decisions are all
+  editable; `userModified` zooms are preserved by the generator
+  (`EditOperationsTests`, `AutoZoomGeneratorTests`)
+- [x] Vertical export produces sensible framing without manual re-targeting of every zoom
+  — `fill` framing with the idle camera and attenuated zooms keeps every click in view on
+  a 9:16 canvas (`FramingTests.testVerticalExportKeepsEveryClickInView`)
+
+**Permissions:** Camera (requested when camera recording is switched on) and Accessibility
+(requested only when keystroke capture is switched on; the recorder records shortcuts
+only unless the user also opts into plain typing, because typed text can be a password).
+
+**Verified on CI** (Xcode 26.6 / Swift 6.3, `SWIFT_STRICT_CONCURRENCY = complete`): clean
+build, all unit tests passing, the v1 golden frames byte-identical. The manual acceptance
+pass on hardware is still to be done.
 
 ---
 
@@ -406,7 +453,7 @@ decision #2. This is the entire debt v1 owes this milestone.
 | Screen Recording | ScreenCaptureKit | v1 |
 | Microphone | Voice track | v1 |
 | Camera | Webcam overlay | v2 |
-| Accessibility | Keystroke capture (`CGEventTap`) | v2, opt-in only |
+| Accessibility | Keystroke capture (global `NSEvent` key monitor) | v2, opt-in only |
 
 Request each permission lazily, at the moment the feature is first used, with an
 explanation of why. Never request Accessibility at launch.

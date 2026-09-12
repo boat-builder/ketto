@@ -5,7 +5,7 @@ running the app. Nothing here is manual once the secrets below exist.
 
 ```
 push to main
-  └─ test           build + 47 unit tests                       (macos-26)
+  └─ test           build + the unit tests                      (macos-26)
       └─ bump       next version → stamp project → tag vX.Y.Z   (ubuntu)
           └─ build  archive → Developer ID → notarize → staple  (macos-26)
                     ├─ Ketto-X.Y.Z.dmg          what a new user downloads

@@ -1,6 +1,6 @@
 name: ci
 
-# PR gate: the project has to build and its 47 unit tests have to pass before a
+# PR gate: the project has to build and its unit tests have to pass before a
 # merge to main, because every merge to main cuts a signed release
 # (.github/workflows/release.yml) and there is no other gate in front of it.
 #

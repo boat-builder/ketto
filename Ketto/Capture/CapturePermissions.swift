@@ -48,9 +48,11 @@ enum CapturePermissions {
     }
 
     /// Asks macOS to show the Accessibility prompt for this app (once) and returns the current state.
+    /// The option key is spelled out because the `kAXTrustedCheckOptionPrompt` global is a mutable C symbol
+    /// Swift 6 will not let concurrent code read.
     @discardableResult
     static func requestAccessibility() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 

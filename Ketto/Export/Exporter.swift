@@ -45,9 +45,11 @@ enum ExportError: Error, LocalizedError {
     }
 }
 
-/// Renders a project to an MP4: decoded `screen.mov` frames go through the same `FrameRenderer` as the preview,
-/// straight into the writer's pixel-buffer pool; `mic.caf` and `system.caf` are mixed to one AAC track at
-/// export time only. All work after setup happens on one serial queue.
+/// Renders a project to a movie or a GIF. Every output frame maps through the edited timeline to a recording
+/// time; the screen and camera frames for that time come from forward-only readers, go through the same
+/// `FrameRenderer` as the preview, and land in the writer's pixel-buffer pool (movies) or in a readable
+/// texture handed to ImageIO (GIF). Audio is read from the same composition the player uses, mixed with the
+/// document's volumes, and encoded to AAC. All work after setup happens on one serial queue.
 final class Exporter: @unchecked Sendable {
     let bundle: RecordingBundle
     let events: EventsDocument
@@ -67,18 +69,18 @@ final class Exporter: @unchecked Sendable {
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var videoReader: AVAssetReader?
-    private var videoOutput: AVAssetReaderTrackOutput?
     private var audioReader: AVAssetReader?
     private var audioOutput: AVAssetReaderAudioMixOutput?
+    private var screenSource: SequentialFrameSource?
+    private var cameraSource: SequentialFrameSource?
+    private var gif: GIFWriter?
+    private var gifTarget: MTLTexture?
     private var renderer: FrameRenderer?
     private var uploader: SourceTextureUploader?
+    private var cameraUploader: SourceTextureUploader?
     private var composer: FrameComposer?
     private var continuation: CheckedContinuation<URL, Error>?
     private var progressHandler: (@Sendable (ExportProgress) -> Void)?
-    private var pendingSample: CMSampleBuffer?
-    private var heldFrame: CVPixelBuffer?
-    private var sourceExhausted = false
     private var nextFrameIndex = 0
     private(set) var totalFrames = 0
     private(set) var duration: Double = 0
@@ -130,68 +132,19 @@ final class Exporter: @unchecked Sendable {
 
     private func prepare() async throws {
         let screenAsset = AVURLAsset(url: bundle.screenURL)
-        let videoTracks = try await screenAsset.loadTracks(withMediaType: .video)
-        guard let videoTrack = videoTracks.first else { throw ExportError.noVideoTrack }
         let assetDuration = try await screenAsset.load(.duration).seconds
+        let hasCamera = bundle.hasCameraTrack && edit.camera.enabled
         // The composer lays the edited timeline over the recording; every output frame maps to a source time.
-        let composer = FrameComposer(edit: edit, events: events, source: SourceInfo(display: events.display), sourceDuration: assetDuration.isFinite ? assetDuration : 0)
+        let composer = FrameComposer(edit: edit, events: events, source: SourceInfo(display: events.display), cameraAvailable: hasCamera, sourceDuration: assetDuration.isFinite ? assetDuration : 0)
         let duration = composer.duration
         self.duration = duration
         totalFrames = max(1, Int((duration * Double(settings.fps)).rounded(.up)))
         let durationTime = CMTime(seconds: duration, preferredTimescale: CMTimeScale(ExportSettings.audioSampleRate))
 
-        // Video: decode to BGRA. Decoder output is IOSurface-backed on macOS and uploads without a copy;
-        // `SourceTextureUploader` stages anything that is not.
-        let videoReader = try AVAssetReader(asset: screenAsset)
-        let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        ])
-        videoOutput.alwaysCopiesSampleData = false
-        guard videoReader.canAdd(videoOutput) else { throw ExportError.readerSetupFailed }
-        videoReader.add(videoOutput)
-
-        // Audio: both tracks laid on the edited timeline in one composition (the same one the player uses),
-        // mixed by the reader with the document's volumes. Nothing on disk is touched.
-        let media = try await CompositionBuilder.screenMedia(for: PlaybackSource(bundle: bundle, timeline: composer.timeline, audio: edit.audio, micURL: voiceURL))
-        let audioTracks = media.composition.tracks(withMediaType: .audio)
-        var audioReader: AVAssetReader?
-        var audioOutput: AVAssetReaderAudioMixOutput?
-        if !audioTracks.isEmpty {
-            let reader = try AVAssetReader(asset: media.composition)
-            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: ExportSettings.audioDecodeSettings)
-            output.audioMix = media.audioMix
-            output.audioTimePitchAlgorithm = .spectral
-            output.alwaysCopiesSampleData = false
-            guard reader.canAdd(output) else { throw ExportError.readerSetupFailed }
-            reader.add(output)
-            reader.timeRange = CMTimeRange(start: .zero, duration: durationTime)
-            audioReader = reader
-            audioOutput = output
-        }
-
-        // Writer: H.264 High + AAC in an MP4 with the movie header at the front.
-        try? FileManager.default.removeItem(at: outputURL)
-        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        writer.shouldOptimizeForNetworkUse = true
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: settings.videoOutputSettings)
-        videoInput.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: settings.width,
-            kCVPixelBufferHeightKey as String: settings.height,
-            kCVPixelBufferMetalCompatibilityKey as String: true,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
-        ])
-        guard writer.canAdd(videoInput) else { throw ExportError.writerSetupFailed }
-        writer.add(videoInput)
-        var audioInput: AVAssetWriterInput?
-        if audioOutput != nil {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: ExportSettings.audioOutputSettings)
-            input.expectsMediaDataInRealTime = false
-            guard writer.canAdd(input) else { throw ExportError.writerSetupFailed }
-            writer.add(input)
-            audioInput = input
+        let screenSource = try await SequentialFrameSource(url: bundle.screenURL)
+        var cameraSource: SequentialFrameSource?
+        if hasCamera {
+            cameraSource = try? await SequentialFrameSource(url: bundle.cameraURL)
         }
 
         let renderer: FrameRenderer
@@ -201,16 +154,67 @@ final class Exporter: @unchecked Sendable {
             throw ExportError.renderSetupFailed(error)
         }
 
-        self.videoReader = videoReader
-        self.videoOutput = videoOutput
-        self.audioReader = audioReader
-        self.audioOutput = audioOutput
-        self.writer = writer
-        self.videoInput = videoInput
-        self.audioInput = audioInput
-        self.adaptor = adaptor
+        try? FileManager.default.removeItem(at: outputURL)
+        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        if let fileType = settings.container.fileType {
+            // Audio: both tracks laid on the edited timeline in one composition (the same one the player uses),
+            // mixed by the reader with the document's volumes. Nothing on disk is touched.
+            let media = try await CompositionBuilder.screenMedia(for: PlaybackSource(bundle: bundle, timeline: composer.timeline, audio: edit.audio, micURL: voiceURL))
+            let audioTracks = media.composition.tracks(withMediaType: .audio)
+            var audioReader: AVAssetReader?
+            var audioOutput: AVAssetReaderAudioMixOutput?
+            if !audioTracks.isEmpty {
+                let reader = try AVAssetReader(asset: media.composition)
+                let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: ExportSettings.audioDecodeSettings)
+                output.audioMix = media.audioMix
+                output.audioTimePitchAlgorithm = .spectral
+                output.alwaysCopiesSampleData = false
+                guard reader.canAdd(output) else { throw ExportError.readerSetupFailed }
+                reader.add(output)
+                reader.timeRange = CMTimeRange(start: .zero, duration: durationTime)
+                audioReader = reader
+                audioOutput = output
+            }
+
+            // Writer: the chosen codec plus AAC, with the movie header at the front.
+            let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+            writer.shouldOptimizeForNetworkUse = true
+            let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: settings.videoOutputSettings)
+            videoInput.expectsMediaDataInRealTime = false
+            let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: settings.width,
+                kCVPixelBufferHeightKey as String: settings.height,
+                kCVPixelBufferMetalCompatibilityKey as String: true,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+            ])
+            guard writer.canAdd(videoInput) else { throw ExportError.writerSetupFailed }
+            writer.add(videoInput)
+            var audioInput: AVAssetWriterInput?
+            if audioOutput != nil {
+                let input = AVAssetWriterInput(mediaType: .audio, outputSettings: ExportSettings.audioOutputSettings)
+                input.expectsMediaDataInRealTime = false
+                guard writer.canAdd(input) else { throw ExportError.writerSetupFailed }
+                writer.add(input)
+                audioInput = input
+            }
+            self.audioReader = audioReader
+            self.audioOutput = audioOutput
+            self.writer = writer
+            self.videoInput = videoInput
+            self.audioInput = audioInput
+            self.adaptor = adaptor
+        } else {
+            gif = try GIFWriter(url: outputURL, expectedFrames: totalFrames, fps: settings.fps, loop: settings.loop)
+            gifTarget = try renderer.makeReadableTarget(width: settings.width, height: settings.height)
+        }
+
+        self.screenSource = screenSource
+        self.cameraSource = cameraSource
         self.renderer = renderer
         self.uploader = SourceTextureUploader(device: renderer.device)
+        self.cameraUploader = cameraSource == nil ? nil : SourceTextureUploader(device: renderer.device)
         self.composer = composer
     }
 
@@ -222,20 +226,31 @@ final class Exporter: @unchecked Sendable {
             fail(ExportError.cancelled)
             return
         }
-        guard let writer, let videoInput, let videoReader else {
-            fail(ExportError.writerSetupFailed)
+        guard let screenSource else {
+            fail(ExportError.readerSetupFailed)
             return
         }
         startedAt = CFAbsoluteTimeGetCurrent()
+        do {
+            try screenSource.start()
+            try cameraSource?.start()
+        } catch {
+            fail(error)
+            return
+        }
+        if gif != nil {
+            pumpGIF()
+            return
+        }
+        guard let writer, let videoInput else {
+            fail(ExportError.writerSetupFailed)
+            return
+        }
         guard writer.startWriting() else {
             fail(ExportError.writerFailed(writer.error))
             return
         }
         writer.startSession(atSourceTime: .zero)
-        guard videoReader.startReading() else {
-            fail(ExportError.readerFailed(videoReader.error))
-            return
-        }
         if let audioReader, !audioReader.startReading() {
             fail(ExportError.readerFailed(audioReader.error))
             return
@@ -264,7 +279,7 @@ final class Exporter: @unchecked Sendable {
                 return
             }
             do {
-                try renderFrame(index: nextFrameIndex, adaptor: adaptor)
+                try renderMovieFrame(index: nextFrameIndex, adaptor: adaptor)
             } catch {
                 fail(error)
                 return
@@ -300,67 +315,80 @@ final class Exporter: @unchecked Sendable {
         }
     }
 
-    /// Renders output frame `index` (time `index / fps`) into a pooled pixel buffer and appends it. The source
-    /// frame is the one at the recording time the edited timeline maps that output time to; clips are in
-    /// recording order, so the reader only ever moves forwards.
-    private func renderFrame(index: Int, adaptor: AVAssetWriterInputPixelBufferAdaptor) throws {
-        guard let renderer, let uploader, let composer else { throw ExportError.renderFailed }
-        let fps = Double(settings.fps)
-        let t = Double(index) / fps
-        let (sourceFrame, changed) = try sourceFrame(at: composer.sourceTime(forOutput: t))
+    /// Renders every frame into the GIF, one after the other, checking for cancellation between frames.
+    private func pumpGIF() {
+        guard let gif, let gifTarget else { return }
+        while nextFrameIndex < totalFrames {
+            if isCancelled {
+                fail(ExportError.cancelled)
+                return
+            }
+            do {
+                try renderFrame(index: nextFrameIndex, into: gifTarget)
+                guard let image = BGRAImage(texture: gifTarget).cgImage() else { throw ExportError.renderFailed }
+                gif.add(image)
+            } catch {
+                fail(error)
+                return
+            }
+            nextFrameIndex += 1
+            if nextFrameIndex % 6 == 0 { reportProgress() }
+        }
+        finished = true
+        guard let continuation else { return }
+        self.continuation = nil
+        if gif.finish() {
+            reportProgress()
+            continuation.resume(returning: outputURL)
+        } else {
+            try? FileManager.default.removeItem(at: outputURL)
+            continuation.resume(throwing: ExportError.writerFailed(nil))
+        }
+        tearDown()
+    }
 
+    /// Renders output frame `index` (time `index / fps`) into a pooled pixel buffer and appends it.
+    private func renderMovieFrame(index: Int, adaptor: AVAssetWriterInputPixelBufferAdaptor) throws {
+        guard let uploader else { throw ExportError.renderFailed }
         guard let pool = adaptor.pixelBufferPool else { throw ExportError.pixelBufferPoolUnavailable }
         var created: CVPixelBuffer?
         let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &created)
         guard status == kCVReturnSuccess, let target = created else { throw ExportError.pixelBufferPoolUnavailable }
-        guard let (targetTexture, cvTexture) = uploader.wrap(target),
-              let commandBuffer = renderer.commandQueue.makeCommandBuffer() else { throw ExportError.renderFailed }
-
-        if changed, let sourceFrame {
-            uploader.upload(sourceFrame, commandBuffer: commandBuffer)
-        }
-        let state = composer.state(at: t, fps: fps)
-        renderer.encode(state: state, source: uploader.texture, into: targetTexture, commandBuffer: commandBuffer)
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        guard let (targetTexture, cvTexture) = uploader.wrap(target) else { throw ExportError.renderFailed }
+        try renderFrame(index: index, into: targetTexture)
         withExtendedLifetime(cvTexture) {}
-        guard commandBuffer.status == .completed else { throw ExportError.renderFailed }
-
         let presentationTime = CMTime(value: CMTimeValue(index), timescale: CMTimeScale(settings.fps))
         guard adaptor.append(target, withPresentationTime: presentationTime) else {
             throw ExportError.writerFailed(writer?.error)
         }
     }
 
-    /// The decoded source frame to show at `t`: the latest frame whose presentation time is at or before `t`
-    /// (gaps in the recording hold the previous frame). `changed` is true when a different frame than last time
-    /// is returned, so the caller only uploads when necessary.
-    private func sourceFrame(at t: Double) throws -> (frame: CVPixelBuffer?, changed: Bool) {
-        guard let videoOutput, let videoReader else { return (heldFrame, false) }
-        var changed = false
-        while !sourceExhausted {
-            if pendingSample == nil {
-                if let next = videoOutput.copyNextSampleBuffer() {
-                    pendingSample = next
-                } else {
-                    if videoReader.status == .failed { throw ExportError.readerFailed(videoReader.error) }
-                    sourceExhausted = true
-                    break
-                }
-            }
-            guard let sample = pendingSample else { break }
-            let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-            if heldFrame == nil || pts <= t + 1e-4 {
-                if let image = CMSampleBufferGetImageBuffer(sample) {
-                    heldFrame = image
-                    changed = true
-                }
-                pendingSample = nil
-            } else {
-                break
-            }
+    /// Composes output frame `index` into `target`: the screen and camera frames for the recording time the
+    /// edited timeline maps it to, then the renderer. Clips are in recording order, so the readers only ever
+    /// move forwards.
+    private func renderFrame(index: Int, into target: MTLTexture) throws {
+        guard let renderer, let uploader, let composer, let screenSource else { throw ExportError.renderFailed }
+        let fps = Double(settings.fps)
+        let t = Double(index) / fps
+        let sourceTime = composer.sourceTime(forOutput: t)
+        let (screenFrame, screenChanged) = try screenSource.frame(at: sourceTime)
+        guard let commandBuffer = renderer.commandQueue.makeCommandBuffer() else { throw ExportError.renderFailed }
+        if screenChanged, let screenFrame {
+            uploader.upload(screenFrame, commandBuffer: commandBuffer)
         }
-        return (heldFrame, changed)
+        var cameraTexture: MTLTexture?
+        if let cameraSource, let cameraUploader {
+            let (cameraFrame, cameraChanged) = try cameraSource.frame(at: sourceTime)
+            if cameraChanged, let cameraFrame {
+                cameraUploader.upload(cameraFrame, commandBuffer: commandBuffer)
+            }
+            cameraTexture = cameraUploader.texture
+        }
+        let state = composer.state(at: t, fps: fps)
+        renderer.encode(state: state, source: uploader.texture, camera: cameraTexture, into: target, commandBuffer: commandBuffer)
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        guard commandBuffer.status == .completed else { throw ExportError.renderFailed }
     }
 
     private func finishIfComplete() {
@@ -388,7 +416,8 @@ final class Exporter: @unchecked Sendable {
     private func fail(_ error: Error) {
         guard !finished else { return }
         finished = true
-        videoReader?.cancelReading()
+        screenSource?.cancel()
+        cameraSource?.cancel()
         audioReader?.cancelReading()
         if let writer, writer.status == .writing {
             writer.cancelWriting()
@@ -409,18 +438,19 @@ final class Exporter: @unchecked Sendable {
     }
 
     private func tearDown() {
-        pendingSample = nil
-        heldFrame = nil
-        videoOutput = nil
-        videoReader = nil
+        screenSource = nil
+        cameraSource = nil
         audioOutput = nil
         audioReader = nil
         adaptor = nil
         videoInput = nil
         audioInput = nil
         writer = nil
+        gif = nil
+        gifTarget = nil
         composer = nil
         uploader = nil
+        cameraUploader = nil
         renderer = nil
         progressHandler = nil
     }

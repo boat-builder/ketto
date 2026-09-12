@@ -10,14 +10,18 @@ Swift 6 · SwiftUI · Metal · ScreenCaptureKit · AVFoundation · VideoToolbox 
 | Milestone | Scope | State |
 |---|---|---|
 | **v1** Vertical slice | Capture → auto-zoom → cursor smoothing → framing → MP4 export | ✅ **Done** |
-| **v2** Timeline editor | Manual zoom editing, trim/cut, webcam, aspect presets, masking | Not started |
+| **v2** Timeline editor | Timeline, manual zooms, trim/cut/speed, webcam, aspect presets, crop, masks, keystrokes, audio clean-up, pause, window/region capture, GIF and presets | ✅ **Implemented** — hardware acceptance pass pending |
 | **v3** Publishing | YouTube (OAuth + resumable), S3/R2, shareable links | Not started |
 | **v4** Auto subtitles | Local Whisper transcription, word-level timing, burn-in | Not started |
 
-v1 is complete and verified: clean build under Swift 6 strict concurrency on Xcode 26.6,
-47 unit tests passing, export at 4.94× real time at 1080p60 and 1.59× at 4K60, and every
-acceptance criterion in the spec checked on real hardware. Nothing beyond v1 has begun —
-no timeline, trim, webcam, aspect presets, masking, publishing or captions exist yet.
+v1 is complete and verified on real hardware: clean build under Swift 6 strict concurrency
+on Xcode 26.6, export at 4.94× real time at 1080p60 and 1.59× at 4K60.
+
+v2 is implemented and green on CI (build plus the unit tests, including golden frames that
+prove the v1 picture is unchanged). Everything in the v2 scope of `docs/SPEC.md` §6 is
+there; what remains is the manual acceptance pass on hardware — timeline frame rate on a
+10-minute project, and a look at real recordings with the vertical preset. Publishing and
+captions have not begun.
 
 ## Where to look
 
@@ -28,7 +32,7 @@ almost every task needs one slice of it, not the whole thing.
 |---|---|---|---|
 | `README.md` | ~115 | This index: status, build, test, doc map | Always — start here |
 | [docs/SPEC.md](docs/SPEC.md) | ~450 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~120 | How the shipped v1 code behaves: tuning constants, invariants, expected build warnings | Touching existing engine, render, playback or export code |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~220 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, expected build warnings | Touching existing engine, render, playback, capture or export code |
 | [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
 
 ### Picking one section out of the spec
@@ -79,11 +83,17 @@ identity.
 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-47 tests covering the document schemas and bundle I/O, auto-zoom, cursor smoothing, the
-camera path, frame composition, audio alignment, the renderer (golden-frame comparisons
-against committed PNGs) and the export pipeline. None of it needs a display, permissions
-or a capture. Two opt-in throughput benchmarks are skipped by default — see
+About 110 tests covering the document schemas and bundle I/O, the edit timeline and its
+operations, auto-zoom, cursor smoothing, the camera path and framing (including the
+vertical-export criterion), frame composition, audio alignment and processing, the
+renderer (golden-frame comparisons against committed PNGs plus the mask, camera and
+keystroke passes), playback compositions, capture timing, and the export pipeline (MP4,
+HEVC MOV, GIF, cuts and speed). None of it needs a display, permissions or a capture. Two
+opt-in throughput benchmarks are skipped by default — see
 `KettoTests/ExportThroughputTests.swift` for how to run them.
+
+Most of the engine is plain Swift with no Apple frameworks, so it also builds and tests
+with the open-source toolchain on Linux; the Metal, AVFoundation and UI layers need macOS.
 
 Re-record the golden frames after an intentional renderer change:
 
@@ -93,16 +103,33 @@ TEST_RUNNER_KETTO_UPDATE_GOLDEN=1 xcodebuild test -project Ketto.xcodeproj -sche
 
 ## Using it
 
-Pick a display, choose microphone and system audio, press Record. The main window hides, a
-floating control appears on the recorded display (never captured), and a 3-2-1 countdown
-runs. On Stop the project opens in the editor — live preview left, inspector right
-(background, padding, corner radius, shadow, cursor size and smoothing, auto-zoom
-intensity, motion blur). Space plays, arrow keys step a frame, edits autosave. Export…
-(⌘E) renders an MP4 at 1080p/1440p/4K and 30/60 fps.
+**Record.** Pick a display, a window or a region, choose microphone, system audio and
+camera, optionally keyboard-shortcut capture (asks for Accessibility access, only then)
+and hiding the desktop icons, then press Record. The main window hides, a floating control
+appears on the recorded display (never captured), and a 3-2-1 countdown runs. The control
+pauses and resumes the recording into one continuous file, and stops it.
+
+**Edit.** On Stop the project opens in the editor: live preview, transport, the timeline
+and the inspector. The timeline shows a filmstrip with the voice and system waveforms, the
+clips of the main track, the zoom blocks and the mask blocks. Drag a block to move it, its
+edges to retime it, with snapping to the playhead and neighbouring edges; double-click the
+zoom track to add a zoom; ⌘B splits the clip at the playhead; ⌫ deletes the selection
+(a deleted clip is a cut). The inspector covers canvas presets (16:9, 9:16, 1:1, 4:5; fit
+or fill framing), crop, background, frame, cursor (including loop-cursor), automatic
+zooms, the camera bubble, masks, keystroke display, audio (volumes, voice normalisation,
+noise removal) and effects. The preview is editable too: drag the crop, a mask's region,
+the camera bubble or a zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosave.
+
+**Export** (⌘E) offers Web (MP4 H.264 1080p60), Social (30 fps, higher bitrate), Hand-off
+(ProRes 422 MOV) and GIF presets, or any combination of MP4/MOV/GIF, H.264/HEVC/ProRes,
+1080p/1440p/4K and 30/60 fps, saved to a file or copied to the clipboard. ⇧⌘C copies
+the frame under the playhead as an image.
 
 Projects are `.ketto` packages in `~/Movies/Ketto`, holding the untouched screen
-recording (cursor not baked in), microphone and system audio as separate tracks, the event
-track, and every editing decision. Source media is never rewritten.
+recording (cursor not baked in), microphone, system audio and camera as separate tracks,
+the event track, and every editing decision in `edit.json`. Source media is never
+rewritten; the only files Ketto adds are rebuildable derived files (the processed voice
+track) in the bundle's `derived/` folder.
 
 ## Releases and updates
 
@@ -125,7 +152,7 @@ Two workflows and two docs cover the whole of it:
 
 | File | What it does |
 |---|---|
-| `.github/workflows/ci.yml` | PR gate: build + the 47 unit tests |
+| `.github/workflows/ci.yml` | PR gate (and every push to a `claude/**` work branch): build + the unit tests |
 | `.github/workflows/release.yml` | test → version bump + tag → signed, notarized release |
 | [docs/RELEASING.md](docs/RELEASING.md) | The seven secrets, the one-time key setup, and how to recover a failed release |
 | `Ketto/App/UpdateController.swift` | The app side of updates |

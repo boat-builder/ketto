@@ -77,3 +77,27 @@ jobs:
             ${{ runner.temp }}/xcodebuild.log
           retention-days: 7
           if-no-files-found: ignore
+
+  worker-tests:
+    name: Worker tests
+    # The sharing backend (Ketto/Resources/CloudflareBackend/worker.js) runs inside the
+    # real Workers runtime through WorkerTests/. A Linux runner is enough for that and
+    # keeps it off the macOS queue.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: WorkerTests/package-lock.json
+
+      - name: Install the harness
+        run: npm ci
+        working-directory: WorkerTests
+
+      - name: Test the Worker
+        run: npm test
+        working-directory: WorkerTests

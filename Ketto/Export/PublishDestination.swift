@@ -11,12 +11,13 @@ struct VideoMetadata: Equatable, Sendable {
     }
 }
 
-/// Where a finished export goes. Resolved at the very end of the pipeline so that v3 destinations (YouTube,
-/// S3 / R2) slot in without touching the renderer or the exporter.
+/// Where a finished export goes. Resolved at the very end of the pipeline so that destinations slot in without
+/// touching the renderer or the exporter: `LocalFileDestination` (v1), `ClipboardDestination` (v2) and
+/// `CloudflareShareDestination` (v3).
 protocol PublishDestination: Sendable {
     var displayName: String { get }
     func authenticate() async throws
-    func upload(_ file: URL, metadata: VideoMetadata, progress: @Sendable (Double) -> Void) async throws -> URL
+    func upload(_ file: URL, metadata: VideoMetadata, progress: @escaping @Sendable (Double) -> Void) async throws -> URL
 }
 
 enum PublishError: Error, LocalizedError {
@@ -37,7 +38,7 @@ struct LocalFileDestination: PublishDestination {
 
     func authenticate() async throws {}
 
-    func upload(_ file: URL, metadata: VideoMetadata, progress: @Sendable (Double) -> Void) async throws -> URL {
+    func upload(_ file: URL, metadata: VideoMetadata, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: file.path) else { throw PublishError.sourceMissing(file) }
         progress(0)
@@ -72,7 +73,7 @@ struct ClipboardDestination: PublishDestination {
 
     func authenticate() async throws {}
 
-    func upload(_ file: URL, metadata: VideoMetadata, progress: @Sendable (Double) -> Void) async throws -> URL {
+    func upload(_ file: URL, metadata: VideoMetadata, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: file.path) else { throw PublishError.sourceMissing(file) }
         progress(0)

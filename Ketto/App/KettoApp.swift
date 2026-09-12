@@ -14,6 +14,10 @@ struct KettoApp: App {
         .commands {
             AppCommands(model: appDelegate.model, updates: appDelegate.updates)
         }
+        // Settings... (Cmd-,) holds the sharing backend: setup, the connection, and the list of shared videos.
+        Settings {
+            SharingSettingsView(share: appDelegate.share)
+        }
     }
 }
 

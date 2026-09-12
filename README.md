@@ -11,7 +11,7 @@ Swift 6 · SwiftUI · Metal · ScreenCaptureKit · AVFoundation · VideoToolbox 
 |---|---|---|
 | **v1** Vertical slice | Capture → auto-zoom → cursor smoothing → framing → MP4 export | ✅ **Done** |
 | **v2** Timeline editor | Timeline, manual zooms, trim/cut/speed, webcam, aspect presets, crop, masks, keystrokes, audio clean-up, pause, window/region capture, GIF and presets | ✅ **Implemented** — hardware acceptance pass pending |
-| **v3** Publishing | YouTube (OAuth + resumable), S3/R2, shareable links | Not started |
+| **v3** Publishing | Share links via the user's own Cloudflare R2 ✅ · YouTube (OAuth + resumable) | In progress |
 | **v4** Auto subtitles | Local Whisper transcription, word-level timing, burn-in | Not started |
 
 v1 is complete and verified on real hardware: clean build under Swift 6 strict concurrency
@@ -20,20 +20,24 @@ on Xcode 26.6, export at 4.94× real time at 1080p60 and 1.59× at 4K60.
 v2 is implemented and green on CI (build plus the unit tests, including golden frames that
 prove the v1 picture is unchanged). Everything in the v2 scope of `docs/SPEC.md` §6 is
 there; what remains is the manual acceptance pass on hardware — timeline frame rate on a
-10-minute project, and a look at real recordings with the vertical preset. Publishing and
-captions have not begun.
+10-minute project, and a look at real recordings with the vertical preset.
+
+Of v3 only the share links exist: an MP4 export can be uploaded to a Cloudflare R2 bucket
+on the user's own account and shared as a link that lasts about three days (see "Using
+it"). YouTube and captions have not begun.
 
 ## Where to look
 
-Read this file first, then **only the section you need**. The spec is ~450 lines and
+Read this file first, then **only the section you need**. The spec is ~530 lines and
 almost every task needs one slice of it, not the whole thing.
 
 | File | Lines | What it is | Read when |
 |---|---|---|---|
-| `README.md` | ~115 | This index: status, build, test, doc map | Always — start here |
-| [docs/SPEC.md](docs/SPEC.md) | ~450 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~220 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, expected build warnings | Touching existing engine, render, playback, capture or export code |
+| `README.md` | ~230 | This index: status, build, test, doc map | Always — start here |
+| [docs/SPEC.md](docs/SPEC.md) | ~530 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~345 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, sharing, expected build warnings | Touching existing engine, render, playback, capture, export or sharing code |
 | [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
+| `Ketto/Resources/CloudflareBackend/worker.js` | ~390 | The sharing backend the app deploys to the user's Cloudflare account; its header is the HTTP contract | Touching sharing, on either side |
 
 ### Picking one section out of the spec
 
@@ -83,15 +87,28 @@ identity.
 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-114 tests covering the document schemas and bundle I/O, the edit timeline and its
+138 tests covering the document schemas and bundle I/O, the edit timeline and its
 operations, auto-zoom, cursor smoothing, the camera path and framing (including the
 vertical-export criterion), frame composition, audio alignment and processing, the
 renderer (golden-frame comparisons against committed PNGs plus the mask, camera and
 keystroke passes), playback compositions, the editor session (undo grouping, timeline
-operations, preset re-optimisation), capture timing, and the export pipeline (MP4, HEVC
-MOV, GIF, cuts and speed, the camera track). None of it needs a display, permissions or a
-capture. Two of them are opt-in throughput benchmarks, skipped by default — see
-`KettoTests/ExportThroughputTests.swift` for how to run them.
+operations, preset re-optimisation), capture timing, the export pipeline (MP4, HEVC MOV,
+GIF, cuts and speed, the camera track), and the sharing client (against an in-process
+stand-in for the Worker) and setup files. None of it needs a display, permissions, a
+capture or a network. Two of them are opt-in throughput benchmarks, skipped by default —
+see `KettoTests/ExportThroughputTests.swift` for how to run them.
+
+The sharing backend itself is tested inside the real Workers runtime, from `WorkerTests/`
+(needs Node; nothing there ships in the app):
+
+```bash
+cd WorkerTests && npm ci && npm test
+```
+
+The same folder runs the Worker locally for manual testing: put `KETTO_TOKEN=dev` in
+`WorkerTests/.dev.vars`, run `npx wrangler dev` there, and connect the app to
+`http://localhost:8787` with token `dev` through Settings › Sharing › "Connect to an
+existing backend".
 
 Most of the engine is plain Swift with no Apple frameworks, so it also builds and tests
 with the open-source toolchain on Linux; the Metal, AVFoundation and UI layers need macOS.
@@ -126,6 +143,16 @@ the camera bubble or a zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosa
 1080p/1440p/4K and 30/60 fps, saved to a file or copied to the clipboard. ⇧⌘C copies
 the frame under the playhead as an image.
 
+**Share Link**, in the same sheet, renders the video as MP4 (the only format the backend
+serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
+a link like `https://share.example.com/v/…` that works for about three days; a finished
+MP4 export offers the same with Share…. Settings › Sharing sets this up: it needs `wrangler`
+installed and logged in to a Cloudflare account that already holds the domain you want
+the links on. Enter the domain, copy the one command Ketto shows, run it in Terminal, and
+Ketto connects on its own once the Worker answers. The same page lists what is currently
+shared so a link can be copied again or the video removed early, and a second Mac can join
+the same bucket by pasting the address and token.
+
 Projects are `.ketto` packages in `~/Movies/Ketto`, holding the untouched screen
 recording (cursor not baked in), microphone, system audio and camera as separate tracks,
 the event track, and every editing decision in `edit.json`. Source media is never
@@ -153,7 +180,7 @@ Two workflows and two docs cover the whole of it:
 
 | File | What it does |
 |---|---|
-| `.github/workflows/ci.yml` | PR gate (and every push to a `claude/**` work branch): build + the unit tests |
+| `.github/workflows/ci.yml` | PR gate (and every push to a `claude/**` work branch): build + the unit tests on macOS, and the Worker tests on Linux |
 | `.github/workflows/release.yml` | test → version bump + tag → signed, notarized release |
 | [docs/RELEASING.md](docs/RELEASING.md) | The seven secrets, the one-time key setup, and how to recover a failed release |
 | `Ketto/App/UpdateController.swift` | The app side of updates |

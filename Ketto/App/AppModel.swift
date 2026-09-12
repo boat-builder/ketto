@@ -29,6 +29,9 @@ final class AppModel {
     /// recorder draws the update badge from it, and the assignment can land after the first render.
     var updates: UpdateController?
 
+    /// Set by `AppDelegate` at launch, like `updates`: the recorder and the export sheet read it to offer sharing.
+    var share: ShareBackend?
+
     @ObservationIgnored private var hud: RecordHUDPanel?
     @ObservationIgnored private var hiddenWindows: [NSWindow] = []
     @ObservationIgnored private var countdownTask: Task<Void, Never>?

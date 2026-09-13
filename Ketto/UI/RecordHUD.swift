@@ -1,12 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// The floating record HUD: countdown digits, then a red dot, elapsed time, Pause and Stop. It sits at the
-/// bottom centre of the recorded display. It never appears in the capture because `ScreenCaptureEngine`
-/// excludes every window of this process, and clicks on it are dropped by `EventRecorder`.
+/// The floating record HUD: the countdown, then the red dot, elapsed time, Pause and Stop. It sits where the
+/// capture bar was, at the bottom centre of the recorded display. It never appears in the capture because
+/// `ScreenCaptureEngine` excludes every window of this process, and clicks on it are dropped by `EventRecorder`.
 @MainActor
 final class RecordHUDPanel: NSPanel {
-    static let size = NSSize(width: 360, height: 76)
+    static let size = NSSize(width: 420, height: 84)
 
     init(model: AppModel, display: CaptureDisplay) {
         super.init(
@@ -36,7 +36,7 @@ final class RecordHUDPanel: NSPanel {
             (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == display.id
         } ?? NSScreen.main
         guard let target = screen?.visibleFrame else { return }
-        setFrameOrigin(NSPoint(x: target.midX - Self.size.width / 2, y: target.minY + 36))
+        setFrameOrigin(NSPoint(x: target.midX - Self.size.width / 2, y: target.minY + 40))
     }
 }
 
@@ -53,35 +53,57 @@ struct RecordHUDView: View {
             case .finishing:
                 ProgressView()
                     .controlSize(.small)
-                Text("Saving…")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Saving…")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Opening the project in the editor")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
-            case .setup, .editing:
+            case .idle, .editing:
                 EmptyView()
             }
         }
         .padding(.horizontal, 18)
-        .frame(width: RecordHUDPanel.size.width, height: RecordHUDPanel.size.height)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .frame(width: RecordHUDPanel.size.width - 20, height: RecordHUDPanel.size.height - 20)
+        .glassSurface(Capsule(), material: .regularMaterial)
+        .padding(10)
     }
 
     private func countdown(_ remaining: Int) -> some View {
         HStack(spacing: 14) {
-            Text("\(remaining)")
-                .font(.system(size: 40, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .frame(width: 44)
+            if remaining > 0 {
+                Text("\(remaining)")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 40)
+            } else {
+                // Countdown switched off: capture is starting right now.
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 40)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text("Starting…")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
                 Text("Switch to what you want to record")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Cancel") { model.cancelCountdown() }
-                .keyboardShortcut(.cancelAction)
+            Button {
+                model.cancelCountdown()
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Cancel")
+                    Text("esc")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(PillButtonStyle())
+            .keyboardShortcut(.cancelAction)
         }
     }
 
@@ -97,42 +119,51 @@ struct RecordHUDView: View {
     }
 }
 
-/// The red dot, the clock (recording time, pauses excluded), Pause / Resume and Stop.
+/// The coral dot, the clock (recording time, pauses excluded), Pause / Resume and Stop.
 private struct RecordingControls: View {
     let model: AppModel
     let session: RecordingSession
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Circle()
-                .fill(session.isPaused ? Color.secondary : Color.red)
-                .frame(width: 14, height: 14)
+                .fill(session.isPaused ? Color.secondary : KettoTheme.record)
+                .frame(width: 12, height: 12)
+                .shadow(color: session.isPaused ? .clear : KettoTheme.record.opacity(0.6), radius: 4)
             TimelineView(.periodic(from: .now, by: 0.25)) { _ in
                 Text(RecordHUDView.timecode(session.elapsed))
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .monospacedDigit()
+                    .foregroundStyle(session.isPaused ? Color.secondary : Color.primary)
             }
             if session.isPaused {
                 Text("Paused")
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Button {
                 session.togglePause()
             } label: {
-                Image(systemName: session.isPaused ? "play.fill" : "pause.fill")
-                    .frame(width: 16)
+                if session.isPaused {
+                    Label("Resume", systemImage: "play.fill")
+                        .labelStyle(.titleAndIcon)
+                } else {
+                    Image(systemName: "pause.fill")
+                        .frame(width: 14)
+                }
             }
-            .help(session.isPaused ? "Resume recording" : "Pause recording")
+            .buttonStyle(PillButtonStyle())
+            .help(session.isPaused ? "Resume recording (⇧⌘P)" : "Pause recording (⇧⌘P)")
             Button {
                 model.stopRecording()
             } label: {
                 Label("Stop", systemImage: "stop.fill")
+                    .labelStyle(.titleAndIcon)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(RecordButtonStyle(height: 28))
             .keyboardShortcut(.escape, modifiers: [])
+            .help("Stop and open the recording in the editor (⇧⌘R)")
         }
     }
 }

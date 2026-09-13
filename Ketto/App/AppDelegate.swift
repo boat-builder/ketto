@@ -8,11 +8,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Sparkle is started here rather than in `init` so the updater never runs before the app has
     /// finished launching. `AppModel` gets a reference so a recording can hold it off — an update
-    /// window opening mid-capture would be recorded.
+    /// window opening mid-capture would be recorded. The bar (or only the menu bar item) appears last.
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.updates = updates
         model.share = share
         updates.start()
+        model.launch()
     }
 
     /// Opening a `.ketto` package from the Finder.
@@ -21,14 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.openProject(at: url)
     }
 
-    /// The main window is hidden while recording; that must not quit the app.
+    /// Ketto lives in the menu bar once its windows are closed; closing the last one never quits.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !model.isRecording
+        false
     }
 
-    /// Clicking the Dock icon while recording must not bring the hidden main window back into the capture.
+    /// Clicking the Dock icon brings the bar or the app window back — never during a capture, when both are
+    /// hidden on purpose so they stay out of the video.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        !model.isRecording
+        model.handleReopen()
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

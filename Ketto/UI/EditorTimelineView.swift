@@ -343,11 +343,11 @@ private struct PlayheadView: View {
         let x = geometry.x(session.player.currentTime)
         ZStack(alignment: .top) {
             Rectangle()
-                .fill(Color.red)
+                .fill(KettoTheme.record)
                 .frame(width: 1, height: height)
             Image(systemName: "arrowtriangle.down.fill")
                 .font(.system(size: 9))
-                .foregroundStyle(Color.red)
+                .foregroundStyle(KettoTheme.record)
                 .offset(y: EditorTimelineView.rulerHeight - 10)
         }
         .frame(width: 11, height: height, alignment: .top)
@@ -619,7 +619,7 @@ private struct ZoomBlockView: View {
             let width = max(geometry.x(range.upperBound - range.lowerBound), 6)
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(zoom.userModified ? Color.purple.opacity(isSelected ? 0.75 : 0.5) : Color.blue.opacity(isSelected ? 0.75 : 0.5))
+                    .fill(zoom.userModified ? KettoTheme.manualZoom.opacity(isSelected ? 0.85 : 0.6) : KettoTheme.automaticZoom.opacity(isSelected ? 0.85 : 0.6))
                     .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(isSelected ? Color.white : Color.white.opacity(0.3), lineWidth: isSelected ? 2 : 1))
                 Text(String(format: "%.1f×", zoom.scale))
                     .font(.system(size: 10, weight: .medium).monospacedDigit())
@@ -641,7 +641,7 @@ private struct ZoomBlockView: View {
         } else {
             // Inside a cut: a marker at the point where the cut happens, so the block can still be found.
             Rectangle()
-                .fill(Color.blue.opacity(0.4))
+                .fill(KettoTheme.automaticZoom.opacity(0.4))
                 .frame(width: 3, height: height)
                 .offset(x: geometry.x(timeline.outputTime(forSource: zoom.start)) - 1)
                 .contentShape(Rectangle())
@@ -717,7 +717,7 @@ private struct MaskBlockView: View {
     @State private var snapper = TimelineSnapper(candidates: [], tolerance: 0)
 
     private var isSelected: Bool { session.selection == .mask(mask.id) }
-    private var color: Color { mask.kind == .blur ? Color.teal : Color.yellow }
+    private var color: Color { mask.kind == .blur ? KettoTheme.blurMask : KettoTheme.highlightMask }
 
     var body: some View {
         let timeline = session.timeline

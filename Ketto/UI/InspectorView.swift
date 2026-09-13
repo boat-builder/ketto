@@ -1,36 +1,82 @@
 import SwiftUI
 
-/// The inspector: the selected block first, then canvas, background, frame, cursor, zoom, camera, masks,
-/// keystrokes, audio and effects. Every control writes into `session.edit` (one undo step per slider drag) or
-/// through a session operation (one undo step each); the composer rebuilds and `edit.json` autosaves.
+/// The inspector: whatever is selected on the timeline first (a zoom, a clip or a mask gets its own card on top),
+/// then four tabs. Look holds canvas, background and frame; Motion the automatic zooms, the cursor and effects;
+/// Overlays the camera bubble, masks and keystrokes; Audio the volumes and voice clean-up. Every control writes
+/// into `session.edit` (one undo step per slider drag) or through a session operation (one undo step each); the
+/// composer rebuilds and `edit.json` autosaves.
 struct InspectorView: View {
     @Bindable var session: ProjectSession
 
+    enum Tab: String, CaseIterable, Identifiable {
+        case look = "Look"
+        case motion = "Motion"
+        case overlays = "Overlays"
+        case audio = "Audio"
+
+        var id: String { rawValue }
+    }
+
+    @State private var tab: Tab = .look
+
     var body: some View {
-        Form {
-            if let zoom = session.selectedZoom {
-                selectedZoomSection(zoom)
+        VStack(spacing: 0) {
+            Picker("Inspector", selection: $tab) {
+                ForEach(Tab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
             }
-            if let clip = session.selectedClip {
-                selectedClipSection(clip)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            Divider()
+            Form {
+                if let zoom = session.selectedZoom {
+                    selectedZoomSection(zoom)
+                }
+                if let clip = session.selectedClip {
+                    selectedClipSection(clip)
+                }
+                if let mask = session.selectedMask {
+                    selectedMaskSection(mask)
+                }
+                switch tab {
+                case .look:
+                    canvasSection
+                    backgroundSection
+                    frameSection
+                case .motion:
+                    zoomSection
+                    cursorSection
+                    effectsSection
+                case .overlays:
+                    cameraSection
+                    masksSection
+                    keystrokesSection
+                case .audio:
+                    if session.bundle.hasMicTrack || session.bundle.hasSystemAudioTrack {
+                        audioSection
+                    } else {
+                        Section("Audio") {
+                            Text("This recording has no audio tracks. Switch the microphone or system audio on in the capture bar before recording.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
-            if let mask = session.selectedMask {
-                selectedMaskSection(mask)
-            }
-            canvasSection
-            backgroundSection
-            frameSection
-            cursorSection
-            zoomSection
-            cameraSection
-            masksSection
-            keystrokesSection
-            if session.bundle.hasMicTrack || session.bundle.hasSystemAudioTrack {
-                audioSection
-            }
-            effectsSection
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: session.selection) { _, selection in
+            // A new selection opens the tab its controls live on, so the card and its context sit together.
+            switch selection {
+            case .zoom: tab = .motion
+            case .mask: tab = .overlays
+            case .clip, .none: break
+            }
+        }
     }
 
     // MARK: - Selection
@@ -441,7 +487,7 @@ struct InspectorView: View {
             if session.hasCameraTrack {
                 cameraControls
             } else {
-                Text("This project has no camera track. Switch on Record camera in the recorder to record yourself alongside the screen; the camera floats over the display while you record and becomes a bubble here, with its shape, size, position, corners and border to adjust.")
+                Text("This project has no camera track. Switch the camera on in the capture bar to record yourself alongside the screen; the camera floats over the display while you record and becomes a bubble here, with its shape, size, position, corners and border to adjust.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

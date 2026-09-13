@@ -60,6 +60,20 @@ final class CameraBubbleController {
         }
     }
 
+    /// Shows the bubble on `display` without opening the camera: for a recording started while the capture bar
+    /// was closed, the recording's own session arrives through `attach(_:)` once it is warm, and the bubble shows
+    /// its placeholder until then.
+    func showAwaitingRecording(on display: CaptureDisplay, sizeFraction: Double) {
+        self.display = display
+        self.sizeFraction = min(max(sizeFraction, Self.sizeRange.lowerBound), Self.sizeRange.upperBound)
+        let panel = self.panel ?? makePanel()
+        layout(panel, on: display)
+        if !isShowing {
+            panel.orderFrontRegardless()
+            isShowing = true
+        }
+    }
+
     /// Hides the bubble and releases the camera.
     func hide() {
         panel?.orderOut(nil)

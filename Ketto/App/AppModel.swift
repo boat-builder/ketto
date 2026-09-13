@@ -3,12 +3,48 @@ import AppKit
 import Observation
 import UniformTypeIdentifiers
 
-/// Application state: recorder setup → countdown → recording → editor. Owns the record HUD and decides which
-/// windows are visible in each phase. Everything here runs on the main actor.
+/// The pages of the app window. Library and Shared Links are the top of the sidebar; the rest are Settings.
+enum AppPage: String, CaseIterable, Identifiable, Hashable {
+    case library, sharedLinks, recording, sharing, updates
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .library: return "Library"
+        case .sharedLinks: return "Shared Links"
+        case .recording: return "Recording"
+        case .sharing: return "Sharing"
+        case .updates: return "Updates"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .library: return "film.stack"
+        case .sharedLinks: return "link"
+        case .recording: return "record.circle"
+        case .sharing: return "icloud.and.arrow.up"
+        case .updates: return "arrow.down.circle"
+        }
+    }
+
+    var isSettings: Bool {
+        switch self {
+        case .library, .sharedLinks: return false
+        case .recording, .sharing, .updates: return true
+        }
+    }
+}
+
+/// Application state and the surfaces it owns: the floating capture bar, the record HUD and the app window.
+/// Ketto launches as the bar (or, when that is switched off, as the menu bar item alone); the app window holds
+/// the library, the settings and the editor. Everything here runs on the main actor.
 @Observable @MainActor
 final class AppModel {
     enum Phase {
-        case setup
+        /// Nothing is being captured or edited: the bar, the menu bar item, or the library.
+        case idle
         case countdown(Int)
         case recording(RecordingSession)
         /// The stream has stopped; media is being finalised and the project opened.
@@ -16,31 +52,45 @@ final class AppModel {
         case editing(ProjectSession)
     }
 
-    private(set) var phase: Phase = .setup
+    private(set) var phase: Phase = .idle
     var errorMessage: String?
     var isExportSheetPresented = false
+    /// What the export sheet opens for: a file, or a share link. Set by whichever button asked for it.
+    var exportIntent: ExportIntent = .export
+    /// The page the app window shows while no project is open.
+    var page: AppPage = .library
     /// Statistics of the most recent recording, shown in the editor's status line.
     private(set) var lastRecordingStatistics: RecordingStatistics?
     /// The bundle `lastRecordingStatistics` describe, so the editor only shows them for that project.
     private(set) var lastRecordedBundle: RecordingBundle?
-    /// The floating camera bubble. The recorder shows it while the camera is switched on; it stays through the
+    /// The floating camera bubble. The bar shows it while the camera is switched on; it stays through the
     /// countdown and the recording, showing the camera as it is being recorded.
     let cameraBubble = CameraBubbleController()
-    /// Bumped whenever the project library may have changed so the setup view refreshes its list.
+    /// Bumped whenever the project library may have changed so its views refresh.
     private(set) var libraryRevision = 0
+    /// The projects in the storage folder, newest first. The menu bar item shows the first three.
+    private(set) var recentProjects: [RecordingBundle] = []
 
-    /// Set by `AppDelegate` at launch. Sparkle is held off for as long as the app's windows are
-    /// hidden for a capture; see `hideMainWindows()`. Observed rather than ignored because the
-    /// recorder draws the update badge from it, and the assignment can land after the first render.
+    /// What the next recording captures. Shared by the bar and Settings › Recording.
+    let settings = CaptureSettings()
+
+    /// Set by `AppDelegate` at launch. Sparkle is held off for as long as the app's windows are hidden for a
+    /// capture; see `hideSurfacesForCapture()`. Observed rather than ignored because the settings page draws the
+    /// update state from it, and the assignment can land after the first render.
     var updates: UpdateController?
 
-    /// Set by `AppDelegate` at launch, like `updates`: the recorder and the export sheet read it to offer sharing.
+    /// Set by `AppDelegate` at launch, like `updates`: the export sheet and Shared Links read it.
     var share: ShareBackend?
 
+    @ObservationIgnored private var bar: CaptureBarPanel?
     @ObservationIgnored private var hud: RecordHUDPanel?
+    @ObservationIgnored private var mainWindow: MainWindowController?
+    @ObservationIgnored private var regionPanel: RegionSelectionPanel?
     @ObservationIgnored private var hiddenWindows: [NSWindow] = []
+    @ObservationIgnored private var barWasVisibleBeforeCapture = false
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var terminateAfterStop = false
+    @ObservationIgnored private let hotKeys = HotKeyCenter()
 
     init() {}
 
@@ -49,7 +99,7 @@ final class AppModel {
     var isRecording: Bool {
         switch phase {
         case .countdown, .recording, .finishing: return true
-        case .setup, .editing: return false
+        case .idle, .editing: return false
         }
     }
 
@@ -74,22 +124,201 @@ final class AppModel {
         set { if !newValue { errorMessage = nil } }
     }
 
+    // MARK: - Launch
+
+    /// Called once the app has finished launching: installs the shortcuts and shows the bar, unless the user
+    /// chose to start in the menu bar.
+    func launch() {
+        hotKeys.onAction = { [weak self] action in
+            self?.perform(action)
+        }
+        hotKeys.install()
+        refreshLibrary()
+        if settings.showsBarAtLaunch {
+            showCaptureBar()
+        }
+    }
+
+    private func perform(_ action: HotKeyCenter.Action) {
+        switch action {
+        case .toggleRecording: toggleRecording()
+        case .togglePause: togglePause()
+        case .showCaptureBar: showCaptureBar()
+        }
+    }
+
+    /// The Dock icon was clicked: bring back whatever the user was doing.
+    func handleReopen() {
+        guard !isRecording else { return }
+        if isEditing || (mainWindow?.window?.isVisible ?? false) {
+            showMainWindow()
+        } else {
+            showCaptureBar()
+        }
+    }
+
+    // MARK: - Capture bar
+
+    var isCaptureBarVisible: Bool {
+        bar?.isVisible ?? false
+    }
+
+    func showCaptureBar() {
+        guard !isRecording else { return }
+        settings.refreshAll()
+        if bar == nil {
+            bar = CaptureBarPanel(model: self)
+        }
+        bar?.show()
+        syncCameraBubble()
+    }
+
+    func hideCaptureBar() {
+        bar?.hide()
+        syncCameraBubble()
+    }
+
+    /// Keeps the floating camera bubble in step with the bar: shown on the display that will be recorded, from
+    /// the chosen camera, at the chosen size, whenever the bar is up with the camera on and usable; hidden
+    /// otherwise. Asks for camera access the first time the camera is switched on. During a capture the bubble
+    /// belongs to the recording and is left alone.
+    func syncCameraBubble() {
+        guard !isRecording else { return }
+        guard isCaptureBarVisible, settings.recordCamera else {
+            cameraBubble.hide()
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            if self.settings.cameraStatus == .notDetermined {
+                _ = await CapturePermissions.requestCamera()
+                self.settings.refreshPermissions()
+                self.settings.refreshDevices()
+            }
+            guard !self.isRecording, self.isCaptureBarVisible, self.settings.recordCamera else { return }
+            if self.settings.cameraStatus == .authorized, !self.settings.cameras.isEmpty,
+               let display = self.settings.source?.display ?? self.settings.selectedDisplay {
+                self.cameraBubble.show(on: display, deviceID: self.settings.selectedCamera?.id, sizeFraction: self.settings.cameraBubbleSize)
+            } else {
+                self.cameraBubble.hide()
+            }
+        }
+    }
+
+    func toggleCaptureBar() {
+        if isCaptureBarVisible { hideCaptureBar() } else { showCaptureBar() }
+    }
+
+    /// Region mode: drag out the rectangle on the chosen display.
+    func selectRegion() {
+        guard let display = settings.selectedDisplay, regionPanel == nil else { return }
+        regionPanel = RegionSelectionPanel.present(on: display, initial: settings.region) { [weak self] rect in
+            guard let self else { return }
+            if let rect { self.settings.region = rect }
+            self.regionPanel = nil
+            if let bar = self.bar, bar.isVisible { bar.show() }
+        }
+    }
+
+    // MARK: - App window
+
+    func showMainWindow() {
+        if mainWindow == nil {
+            mainWindow = MainWindowController(model: self)
+        }
+        mainWindow?.show()
+    }
+
+    func showMainWindow(page: AppPage) {
+        self.page = page
+        showMainWindow()
+    }
+
+    /// The gear on the bar and ⌘L: the library, in front.
+    func showLibrary() {
+        if !isEditing { page = .library }
+        showMainWindow()
+    }
+
+    /// ⌘, and the menu bar item: the first settings page, or the sharing page when asked for.
+    func showSettings(_ page: AppPage = .recording) {
+        guard !isEditing else {
+            // Settings are pages of the app window; leaving the editor to reach them would lose nothing, but the
+            // project stays open and the page appears when the editor is closed.
+            self.page = page
+            closeProject()
+            showMainWindow()
+            return
+        }
+        showMainWindow(page: page)
+    }
+
     // MARK: - Recording
 
-    /// Hides the main window, shows the HUD, counts 3-2-1 and starts the session.
+    /// Record, with whatever the bar and the settings say. Asks for Screen Recording access first if needed,
+    /// and brings the bar back when the choice is incomplete (no window picked, no region drawn).
+    func record() {
+        guard !isRecording else { return }
+        settings.refreshPermissions()
+        guard settings.screenRecordingGranted else {
+            settings.requestScreenRecording()
+            return
+        }
+        guard let configuration = settings.makeConfiguration() else {
+            showCaptureBar()
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            // The bubble's preview lets go of the camera so the recording's own capture session can take it; the
+            // bubble comes back with the live recording during the countdown.
+            await self.cameraBubble.releaseCamera()
+            self.startRecording(configuration: configuration)
+        }
+    }
+
+    /// ⇧⌘R: starts a recording, cancels a countdown, or stops the recording in progress.
+    func toggleRecording() {
+        switch phase {
+        case .idle, .editing:
+            record()
+        case .countdown:
+            cancelCountdown()
+        case .recording:
+            stopRecording()
+        case .finishing:
+            break
+        }
+    }
+
+    /// ⇧⌘P: pauses or resumes the recording in progress.
+    func togglePause() {
+        recordingSession?.togglePause()
+    }
+
+    /// Hides the bar and the app window, shows the HUD, counts down and starts the session.
     func startRecording(configuration: RecordingConfiguration) {
-        guard case .setup = phase else { return }
+        switch phase {
+        case .idle, .editing: break
+        case .countdown, .recording, .finishing: return
+        }
         guard CapturePermissions.screenRecordingGranted else {
             errorMessage = CaptureError.screenRecordingDenied.localizedDescription
             return
         }
+        closeProject()
         let session = RecordingSession(configuration: configuration)
         session.onUnexpectedStop = { [weak self] error in
             self?.handleUnexpectedStop(error)
         }
-        hideMainWindows()
+        hideSurfacesForCapture()
         presentHUD(for: configuration.display)
-        phase = .countdown(3)
+        if configuration.recordCamera, !cameraBubble.isShowing {
+            // Recording from the menu bar or a hot key with the bar closed: the bubble comes up for the recording.
+            cameraBubble.showAwaitingRecording(on: configuration.display, sizeFraction: settings.cameraBubbleSize)
+        }
+        let seconds = settings.countdownSeconds
+        phase = .countdown(max(seconds, 0))
         countdownTask = Task { [weak self] in
             guard let self else { return }
             // The camera warms up during the countdown, so its track starts with the first screen frame; the
@@ -99,13 +328,15 @@ final class AppModel {
                 try await session.prepare()
                 if let capture = session.cameraPreviewSession { bubble.attach(capture) }
             }
-            for remaining in stride(from: 3, through: 1, by: -1) {
-                self.phase = .countdown(remaining)
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    await self.abandonCountdown(session, preparation: preparation)
-                    return
+            if seconds > 0 {
+                for remaining in stride(from: seconds, through: 1, by: -1) {
+                    self.phase = .countdown(remaining)
+                    do {
+                        try await Task.sleep(for: .seconds(1))
+                    } catch {
+                        await self.abandonCountdown(session, preparation: preparation)
+                        return
+                    }
                 }
             }
             guard !Task.isCancelled else {
@@ -124,7 +355,7 @@ final class AppModel {
         }
     }
 
-    /// The countdown was cancelled: let the camera warm-up finish, then release it and go back to the recorder.
+    /// The countdown was cancelled: let the camera warm-up finish, then release it and go back to the bar.
     private func abandonCountdown(_ session: RecordingSession, preparation: Task<Void, Error>) async {
         _ = await preparation.result
         await session.cancelPreparation()
@@ -142,8 +373,8 @@ final class AppModel {
     private func abortRecording(message: String?) {
         countdownTask = nil
         dismissHUD()
-        showMainWindows()
-        phase = .setup
+        phase = .idle
+        restoreSurfacesAfterCapture(showBar: barWasVisibleBeforeCapture)
         if let message { errorMessage = message }
         finishTerminationIfRequested()
     }
@@ -161,15 +392,15 @@ final class AppModel {
                 self.cameraBubble.detachRecording()
                 self.lastRecordingStatistics = session.statistics
                 self.lastRecordedBundle = bundle
-                self.libraryRevision += 1
                 self.dismissHUD()
-                self.showMainWindows()
+                self.restoreSurfacesAfterCapture(showBar: false)
+                self.refreshLibrary()
                 self.openProject(bundle: bundle)
             } catch {
                 self.cameraBubble.detachRecording()
                 self.dismissHUD()
-                self.showMainWindows()
-                self.phase = .setup
+                self.phase = .idle
+                self.restoreSurfacesAfterCapture(showBar: self.barWasVisibleBeforeCapture)
                 self.errorMessage = error.localizedDescription
             }
             self.finishTerminationIfRequested()
@@ -188,12 +419,15 @@ final class AppModel {
     func openProject(bundle: RecordingBundle) {
         do {
             let session = try ProjectSession(bundle: bundle)
-            closeCurrentProject()
+            closeProject()
             cameraBubble.hide()
             phase = .editing(session)
+            hideCaptureBar()
+            showMainWindow()
         } catch {
-            if case .finishing = phase { phase = .setup }
+            if case .finishing = phase { phase = .idle }
             errorMessage = "Could not open \(bundle.name): \(error.localizedDescription)"
+            showMainWindow(page: .library)
         }
     }
 
@@ -217,29 +451,43 @@ final class AppModel {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.kettoProject]
-        panel.directoryURL = ProjectLibrary.defaultDirectory
+        panel.directoryURL = settings.storageDirectory
         guard panel.runModal() == .OK, let url = panel.url else { return }
         openProject(at: url)
     }
 
-    private func closeCurrentProject() {
+    /// Leaves the editor for the library. The project is saved; the app window stays.
+    func closeProject() {
         isExportSheetPresented = false
         if case .editing(let session) = phase {
             session.close()
+            phase = .idle
+            page = .library
+            refreshLibrary()
         }
     }
 
-    /// Leaves the editor and shows the recorder again.
-    func returnToRecorder() {
-        guard !isRecording else { return }
-        closeCurrentProject()
-        phase = .setup
+    func requestExport(_ intent: ExportIntent = .export) {
+        guard isEditing else { return }
+        exportIntent = intent
+        isExportSheetPresented = true
+    }
+
+    /// Re-reads the storage folder. Cheap: it lists one directory.
+    func refreshLibrary() {
+        recentProjects = ProjectLibrary.recentProjects(in: settings.storageDirectory, limit: 200)
         libraryRevision += 1
     }
 
-    func requestExport() {
-        guard isEditing else { return }
-        isExportSheetPresented = true
+    /// Moves a project to the Trash. The open project is never offered for deletion.
+    func trashProject(_ bundle: RecordingBundle) {
+        if let session = currentProject, session.bundle == bundle { return }
+        do {
+            try FileManager.default.trashItem(at: bundle.url, resultingItemURL: nil)
+        } catch {
+            errorMessage = "Could not move \(bundle.name) to the Trash: \(error.localizedDescription)"
+        }
+        refreshLibrary()
     }
 
     /// Renders the frame under the playhead at canvas resolution and puts it on the clipboard as an image.
@@ -279,8 +527,10 @@ final class AppModel {
             return .terminateLater
         case .editing(let session):
             session.close()
+            hotKeys.uninstall()
             return .terminateNow
-        case .setup:
+        case .idle:
+            hotKeys.uninstall()
             return .terminateNow
         }
     }
@@ -289,31 +539,42 @@ final class AppModel {
         guard terminateAfterStop else { return }
         terminateAfterStop = false
         if case .editing(let session) = phase { session.close() }
+        hotKeys.uninstall()
         NSApplication.shared.reply(toApplicationShouldTerminate: true)
     }
 
-    // MARK: - Windows
+    // MARK: - Surfaces
 
-    private func hideMainWindows() {
+    /// Nothing of Ketto's may end up in the capture: the bar, the app window and any panel go away and Sparkle is
+    /// held off; the HUD is the one window left, and the capture engine excludes it.
+    private func hideSurfacesForCapture() {
         updates?.setDeferred(true)
+        barWasVisibleBeforeCapture = isCaptureBarVisible
+        bar?.hide()
         // The HUD and the camera bubble are meant to stay: neither is ever captured.
-        hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible && !($0 is RecordHUDPanel) && !($0 is CameraBubblePanel) }
+        hiddenWindows = NSApplication.shared.windows.filter {
+            $0.isVisible && !($0 is RecordHUDPanel) && !($0 is CaptureBarPanel) && !($0 is CameraBubblePanel)
+        }
         for window in hiddenWindows {
             window.orderOut(nil)
         }
     }
 
-    private func showMainWindows() {
+    private func restoreSurfacesAfterCapture(showBar: Bool) {
         updates?.setDeferred(false)
         let windows = hiddenWindows
         hiddenWindows = []
         for window in windows {
             window.makeKeyAndOrderFront(nil)
         }
-        if windows.isEmpty, let window = NSApplication.shared.windows.first(where: { !($0 is RecordHUDPanel) && !($0 is CameraBubblePanel) && $0.canBecomeMain }) {
-            window.makeKeyAndOrderFront(nil)
+        if showBar {
+            showCaptureBar()
+        } else {
+            syncCameraBubble()
         }
-        NSApplication.shared.activate()
+        if !windows.isEmpty {
+            NSApplication.shared.activate()
+        }
     }
 
     private func presentHUD(for display: CaptureDisplay) {

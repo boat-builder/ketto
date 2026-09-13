@@ -148,10 +148,21 @@ final class ExportController {
     }
 }
 
+/// Which button opened the sheet. The sheet is the same either way; the intent picks the default action.
+enum ExportIntent {
+    case export
+    case share
+}
+
+/// Export and Share: preset cards on top, the format underneath (the fields only matter for Custom), and the two
+/// ways out. Share Link renders MP4 and uploads it to the user's own backend; Export saves a file or copies it.
 struct ExportSheet: View {
     let session: ProjectSession
     /// Nil only if the app was assembled without a `ShareBackend`; the sheet then offers plain export only.
     var share: ShareBackend?
+    var intent: ExportIntent = .export
+    /// Opens Settings › Sharing; the sheet closes first.
+    var setUpSharing: () -> Void = {}
 
     enum Destination: String, CaseIterable, Identifiable {
         case file, clipboard
@@ -160,7 +171,6 @@ struct ExportSheet: View {
     }
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openSettings) private var openSettings
     @State private var controller = ExportController()
     @State private var preset: ExportPreset = .web
     @State private var container: ExportContainer = .mp4
@@ -189,14 +199,15 @@ struct ExportSheet: View {
     /// `video/mp4`, so a MOV or a GIF would come back as a broken link.
     private var canShare: Bool { container == .mp4 }
 
+    private var isSharingConnected: Bool { share?.isConnected ?? false }
+
     private static func isShareable(_ file: URL) -> Bool {
         file.pathExtension.lowercased() == ExportContainer.mp4.pathExtension
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Export")
-                .font(.title2.weight(.semibold))
+            header
             switch controller.state {
             case .idle:
                 options
@@ -213,25 +224,47 @@ struct ExportSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 500)
+        .frame(width: 600)
         .interactiveDismissDisabled(controller.isRunning)
         .onAppear { apply(preset) }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(intent == .share ? "Share Link" : "Export")
+                .font(.system(size: 20, weight: .bold))
+            Text(headerSubtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var headerSubtitle: String {
+        switch controller.state {
+        case .idle:
+            if intent == .share {
+                if let connection = share?.connection {
+                    return "Renders the edit as MP4 and uploads it to \(connection.displayName). The link works for about three days."
+                }
+                return "Share links need a backend of your own; set it up once in Settings › Sharing."
+            }
+            return "\(session.bundle.name) · \(TransportBar.timecode(session.duration))"
+        case .running:
+            return "Rendering \(session.bundle.name)…"
+        case .uploading:
+            return "Uploading to \(share?.connection?.displayName ?? "the backend")…"
+        case .finished, .shared:
+            return session.bundle.name
+        case .failed:
+            return "Something went wrong."
+        }
     }
 
     // MARK: - States
 
     private var options: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Picker("Preset", selection: presetBinding) {
-                ForEach(ExportPreset.allCases) { preset in
-                    Text(preset.displayName).tag(preset)
-                }
-            }
-            .pickerStyle(.segmented)
-            Text(preset.summary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 16) {
+            presetCards
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("Format").foregroundStyle(.secondary)
@@ -312,51 +345,99 @@ struct ExportSheet: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
-                GridRow {
-                    Text("Output").foregroundStyle(.secondary)
-                    Text("\(settings.sizeDescription) · \(settings.formatDescription)")
-                }
-                GridRow {
-                    Text("Length").foregroundStyle(.secondary)
-                    Text(TransportBar.timecode(session.duration))
-                }
-                GridRow {
-                    Text("Estimated size").foregroundStyle(.secondary)
-                    Text(ByteCountFormatter.string(fromByteCount: settings.estimatedFileSize(duration: session.duration), countStyle: .file))
-                }
             }
             .font(.callout)
+            summary
             if container == .gif, session.duration > 20 {
                 Text("GIFs longer than a few seconds get large quickly. Consider trimming the edit first.")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(PillButtonStyle())
                     .keyboardShortcut(.cancelAction)
+                exportButton
                 if let share {
                     if share.isConnected {
-                        Button {
-                            controller.share(session: session, settings: settings, using: share)
-                        } label: {
-                            Label("Share Link", systemImage: "link")
-                        }
-                        .disabled(!canShare)
-                        .help(canShare
-                              ? "Upload to \(share.connection?.displayName ?? "the backend") and copy a link that works for about three days"
-                              : "Share links are MP4 only. Choose the MP4 format to share this export.")
+                        shareButton(share)
                     } else {
                         Button("Set Up Sharing…") {
-                            openSettings()
                             dismiss()
+                            setUpSharing()
                         }
+                        .buttonStyle(intent == .share ? PillButtonStyle(emphasized: true) : PillButtonStyle())
                     }
                 }
-                Button(destination == .file ? "Export…" : "Export and Copy") { startExport() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
             }
+        }
+    }
+
+    private var presetCards: some View {
+        HStack(spacing: 8) {
+            ForEach(ExportPreset.allCases) { candidate in
+                PresetCard(preset: candidate, isSelected: candidate == preset) {
+                    apply(candidate)
+                }
+            }
+        }
+    }
+
+    private var summary: some View {
+        HStack(spacing: 18) {
+            summaryItem("Output", "\(settings.sizeDescription) · \(settings.formatDescription)")
+            summaryItem("Length", TransportBar.timecode(session.duration))
+            summaryItem("Estimated size", ByteCountFormatter.string(fromByteCount: settings.estimatedFileSize(duration: session.duration), countStyle: .file))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func summaryItem(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 12, weight: .medium))
+                .monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private var exportButton: some View {
+        let title = destination == .file ? "Export…" : "Export and Copy"
+        if intent == .share && isSharingConnected {
+            Button(title) { startExport() }
+                .buttonStyle(PillButtonStyle())
+        } else {
+            Button(title) { startExport() }
+                .buttonStyle(ProminentPillButtonStyle())
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    @ViewBuilder
+    private func shareButton(_ share: ShareBackend) -> some View {
+        let button = Button {
+            controller.share(session: session, settings: settings, using: share)
+        } label: {
+            Label("Share Link", systemImage: "link")
+                .labelStyle(.titleAndIcon)
+        }
+        .disabled(!canShare)
+        .help(canShare
+              ? "Upload to \(share.connection?.displayName ?? "the backend") and copy a link that works for about three days"
+              : "Share links are MP4 only. Choose the MP4 format to share this export.")
+        if intent == .share {
+            button
+                .buttonStyle(ProminentPillButtonStyle())
+                .keyboardShortcut(.defaultAction)
+        } else {
+            button
+                .buttonStyle(PillButtonStyle(emphasized: true))
         }
     }
 
@@ -374,6 +455,7 @@ struct ExportSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { controller.cancel() }
+                    .buttonStyle(PillButtonStyle())
                     .keyboardShortcut(.cancelAction)
             }
         }
@@ -397,6 +479,7 @@ struct ExportSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { controller.cancel() }
+                    .buttonStyle(PillButtonStyle())
                     .keyboardShortcut(.cancelAction)
             }
         }
@@ -415,40 +498,62 @@ struct ExportSheet: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
                 Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    .buttonStyle(PillButtonStyle())
                 if let share, share.isConnected, Self.isShareable(url) {
-                    Button("Share…") {
+                    Button {
                         controller.shareExisting(file: url, title: session.bundle.name, using: share)
+                    } label: {
+                        Label("Share Link", systemImage: "link")
+                            .labelStyle(.titleAndIcon)
                     }
+                    .buttonStyle(PillButtonStyle(emphasized: true))
                 }
                 Button("Done") { dismiss() }
+                    .buttonStyle(ProminentPillButtonStyle())
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
             }
         }
     }
 
     private func shared(link: URL, bytes: Int64, elapsed: Double) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Link copied to the clipboard", systemImage: "link.circle.fill")
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Link copied to the clipboard", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .font(.headline)
-            Text(link.absoluteString)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-            Text(String(format: "%@ uploaded in %.1f s. The link stops working after about three days.", Self.bytes(bytes), elapsed))
+            HStack(spacing: 10) {
+                Text(link.absoluteString)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Button {
+                    ShareBackend.copyLink(link)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(IconButtonStyle(size: 24))
+                .hoverHighlight()
+                .help("Copy the link again")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+            Text(String(format: "%@ uploaded in %.1f s. The link stops working after about three days; Shared Links lists it until then.", Self.bytes(bytes), elapsed))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
-                Button("Copy Link") { ShareBackend.copyLink(link) }
                 Button("Open in Browser") { NSWorkspace.shared.open(link) }
+                    .buttonStyle(PillButtonStyle())
                 Button("Done") { dismiss() }
+                    .buttonStyle(ProminentPillButtonStyle())
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -462,20 +567,18 @@ struct ExportSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
                 Button("Try Again") { controller.reset() }
+                    .buttonStyle(PillButtonStyle())
                 Button("Close") { dismiss() }
+                    .buttonStyle(ProminentPillButtonStyle())
                     .keyboardShortcut(.cancelAction)
             }
         }
     }
 
     // MARK: - Presets
-
-    private var presetBinding: Binding<ExportPreset> {
-        Binding(get: { preset }, set: { apply($0) })
-    }
 
     /// A binding that switches the preset to Custom whenever the user changes a field.
     private func customised<Value>(_ binding: Binding<Value>) -> Binding<Value> {
@@ -536,5 +639,56 @@ struct ExportSheet: View {
 
     private static func bytes(_ count: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
+    }
+}
+
+/// One export preset as a card: an icon, the name and what it produces in a few words.
+private struct PresetCard: View {
+    let preset: ExportPreset
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                Text(preset.displayName)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(shortSummary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+            .padding(10)
+            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: isSelected ? 1.5 : 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(preset.summary)
+    }
+
+    private var symbol: String {
+        switch preset {
+        case .web: return "globe"
+        case .social: return "rectangle.portrait"
+        case .handoff: return "film"
+        case .gif: return "photo.on.rectangle"
+        case .custom: return "slider.horizontal.3"
+        }
+    }
+
+    private var shortSummary: String {
+        switch preset {
+        case .web: return "MP4 · H.264 · 1080p60"
+        case .social: return "MP4 · 1080p30 · higher bitrate"
+        case .handoff: return "MOV · ProRes 422 · 60 fps"
+        case .gif: return "640 px · 15 fps · looping"
+        case .custom: return "Your own combination"
+        }
     }
 }

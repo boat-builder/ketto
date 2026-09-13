@@ -116,6 +116,35 @@ final class UpdateController: NSObject {
     func setDeferred(_ deferred: Bool) {
         isDeferred = deferred
     }
+
+    // Sparkle keeps these two in its own defaults; the accessors go through the observation registrar so
+    // Settings › Updates redraws when they change. Both read false while the updater is not running.
+
+    /// Sparkle's scheduled check (`SUEnableAutomaticChecks`).
+    var automaticallyChecksForUpdates: Bool {
+        get {
+            access(keyPath: \.automaticallyChecksForUpdates)
+            return updaterController?.updater.automaticallyChecksForUpdates ?? false
+        }
+        set {
+            withMutation(keyPath: \.automaticallyChecksForUpdates) {
+                updaterController?.updater.automaticallyChecksForUpdates = newValue
+            }
+        }
+    }
+
+    /// Install found updates without asking (`SUAutomaticallyUpdate`).
+    var automaticallyDownloadsUpdates: Bool {
+        get {
+            access(keyPath: \.automaticallyDownloadsUpdates)
+            return updaterController?.updater.automaticallyDownloadsUpdates ?? false
+        }
+        set {
+            withMutation(keyPath: \.automaticallyDownloadsUpdates) {
+                updaterController?.updater.automaticallyDownloadsUpdates = newValue
+            }
+        }
+    }
 }
 
 // MARK: - SPUUpdaterDelegate

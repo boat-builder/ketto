@@ -58,8 +58,9 @@ struct WranglerConfig: Codable, Equatable, Sendable {
     }
 }
 
-/// Everything the setup command needs, written to one folder that `setup.sh` runs from: the Worker source and
-/// script from the app bundle, plus the generated `wrangler.json`, `config.env` and `secret.txt`.
+/// Everything the setup needs, written to one folder that the user's coding agent (or `setup.sh`) works from: the
+/// Worker source and script from the app bundle, plus the generated `wrangler.json`, `config.env` and
+/// `secret.txt`. `prompt` is what the user hands the agent; it names the folder and every step.
 struct ShareSetupBundle: Equatable, Sendable {
     static let workerName = "ketto-share"
     static let bucketName = "ketto-videos"
@@ -92,13 +93,47 @@ struct ShareSetupBundle: Equatable, Sendable {
         try ShareBackendConnection(baseURL: baseURL, token: token)
     }
 
-    /// The one line the user runs. `$HOME` stands in for the home directory so the command reads the same on every
-    /// machine, and the quotes cope with the space in "Application Support".
-    var command: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        var path = scriptURL.path
-        if path.hasPrefix(home + "/") { path = "$HOME" + path.dropFirst(home.count) }
-        return "bash \"\(path)\""
+    /// Runs `setup.sh`, which does the same steps the prompt spells out. The quotes cope with the space in
+    /// "Application Support".
+    var scriptCommand: String {
+        "bash \"\(scriptURL.path)\""
+    }
+
+    /// What the user pastes into their coding agent (Claude Code, Codex, Cursor…). It names the folder and its
+    /// files, gives every step with its wrangler command, and sets the rules, so an agent on this Mac can do the
+    /// whole setup and recover from a missing or outdated wrangler on its own. The token itself is never in the
+    /// prompt: the agent feeds `secret.txt` to `wrangler secret put`, so the token reaches neither the clipboard
+    /// nor the agent's transcript. `setup.sh` does steps 3–6 of the same list; the prompt offers it as the short
+    /// route and keeps the steps for when the script fails. Paths are absolute so the agent can use them with
+    /// file tools as well as in a shell.
+    var prompt: String {
+        let bucket = Self.bucketName
+        let worker = Self.workerName
+        return """
+        Set up the video-sharing backend of Ketto (a macOS screen recorder) on my Cloudflare account. \
+        It needs the wrangler CLI on this Mac, so work locally, not in a container or a remote sandbox.
+
+        Ketto has written everything the setup needs to this folder:
+
+          \(directory.path)
+
+          worker.js      the Cloudflare Worker that stores and serves the videos (do not edit)
+          wrangler.json  its configuration: Worker "\(worker)", R2 bucket "\(bucket)", custom domain \(domain) (do not edit)
+          secret.txt     the bearer token Ketto authenticates with; it goes into the Worker as the secret KETTO_TOKEN
+          setup.sh       a script that does steps 3 to 6 below; all of them are safe to repeat
+
+        Do this, in order:
+
+        1. Check that wrangler 4 or newer is installed: `wrangler --version`. If it is missing or older, install or update it (`npm install -g wrangler@latest`, or through Homebrew if that is how it was installed).
+        2. Check that wrangler is logged in: `wrangler whoami`. If it is not, run `wrangler login` and ask me to finish the login in the browser before going on. That account must already hold the zone \(domain) belongs to; if the deploy in step 5 reports that it does not, stop and tell me rather than adding domains or zones to Cloudflare.
+        3. Create the R2 bucket \(bucket) unless it exists already (`wrangler r2 bucket info \(bucket)` tells you; then `wrangler r2 bucket create \(bucket)`). Keep it private: never enable public access or a public bucket URL on it.
+        4. Add the lifecycle rule that expires objects after 3 days and aborts unfinished multipart uploads after 1 day: `wrangler r2 bucket lifecycle add \(bucket) ketto-expire --expire-days 3 --abort-multipart-days 1 --force`. If a rule named ketto-expire is already there, keep it.
+        5. Deploy the Worker from the folder above: `cd` into it and run `wrangler deploy`, so it picks up wrangler.json. This creates the Worker \(worker) and attaches \(domain) as its custom domain; wrangler adds the DNS record and the certificate itself.
+        6. Store the token as the Worker secret straight from the file, in the same folder: `wrangler secret put KETTO_TOKEN < secret.txt`. Do not read the token out, print it or paste it anywhere; it is a credential.
+        7. Verify: `curl -s https://\(domain)/` should answer {"service":"ketto-share","api":\(ShareBackendClient.apiVersion)}. A new hostname can take a minute or two while Cloudflare issues its certificate, so retry a few times before calling it a failure.
+
+        The quickest way through steps 3 to 6 is `\(scriptCommand)`; if it fails, fix the cause and run it again, or finish the remaining steps yourself. Change nothing else on the Cloudflare account and nothing in the folder. When the Worker answers, tell me: Ketto connects to it on its own (Settings › Sharing) and then deletes secret.txt.
+        """
     }
 
     /// Lower-cases, strips a scheme and trailing slashes, and insists on a real hostname with at least two labels.

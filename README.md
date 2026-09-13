@@ -37,7 +37,7 @@ almost every task needs one slice of it, not the whole thing.
 | [docs/SPEC.md](docs/SPEC.md) | ~530 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~345 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, sharing, expected build warnings | Touching existing engine, render, playback, capture, export or sharing code |
 | [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
-| `Ketto/Resources/CloudflareBackend/worker.js` | ~390 | The sharing backend the app deploys to the user's Cloudflare account; its header is the HTTP contract | Touching sharing, on either side |
+| `Ketto/Resources/CloudflareBackend/worker.js` | ~970 | The sharing backend the app deploys to the user's Cloudflare account, including the viewer page share links open; its header is the HTTP contract | Touching sharing, on either side |
 
 ### Picking one section out of the spec
 
@@ -87,16 +87,16 @@ identity.
 xcodebuild test -project Ketto.xcodeproj -scheme Ketto -destination 'platform=macOS,arch=arm64'
 ```
 
-138 tests covering the document schemas and bundle I/O, the edit timeline and its
+141 tests covering the document schemas and bundle I/O, the edit timeline and its
 operations, auto-zoom, cursor smoothing, the camera path and framing (including the
 vertical-export criterion), frame composition, audio alignment and processing, the
 renderer (golden-frame comparisons against committed PNGs plus the mask, camera and
 keystroke passes), playback compositions, the editor session (undo grouping, timeline
 operations, preset re-optimisation), capture timing, the export pipeline (MP4, HEVC MOV,
-GIF, cuts and speed, the camera track), and the sharing client (against an in-process
-stand-in for the Worker) and setup files. None of it needs a display, permissions, a
-capture or a network. Two of them are opt-in throughput benchmarks, skipped by default —
-see `KettoTests/ExportThroughputTests.swift` for how to run them.
+GIF, cuts and speed, the camera track), the sharing client (against an in-process stand-in
+for the Worker), the setup files and the agent prompt. None of it needs a display,
+permissions, a capture or a network. Two of them are opt-in throughput benchmarks, skipped
+by default — see `KettoTests/ExportThroughputTests.swift` for how to run them.
 
 The sharing backend itself is tested inside the real Workers runtime, from `WorkerTests/`
 (needs Node; nothing there ships in the app):
@@ -129,10 +129,15 @@ starts a recording from any app, ⇧⌘P pauses it. Settings › Recording can s
 the menu bar only.
 
 **Record.** Choose what to capture on the bar (the window picker shows live thumbnails;
-Region drags a rectangle out on the display), then press Record. The bar and any app window
-hide, a countdown runs (3 s by default; 0, 5 or 10 in Settings) and the recording HUD
-takes the bar's place on the recorded display, never captured. The HUD pauses and resumes
-into one continuous file, and stops.
+Region drags a rectangle out on the display), then press Record. Switching the camera on
+asks for camera access and puts a floating bubble with your picture on the display — the
+bubble the video will show, mirrored like a mirror. Drag it wherever it is least in the
+way: it is never captured, it stays through the countdown and the recording showing
+exactly what is being recorded, and where you leave it is where the bubble starts out in
+the edit. On Record the bar and any app window hide, a countdown runs (3 s by default; 0,
+5 or 10 in Settings), during which the camera warms up so its track starts with the first
+frame, and the recording HUD takes the bar's place on the recorded display, never
+captured. The HUD pauses and resumes into one continuous file, and stops.
 
 **Edit.** On Stop the project opens in the editor, in the app window: live preview on a
 dark stage, transport, the timeline and the inspector. The timeline shows a filmstrip with the voice and system waveforms, the
@@ -141,10 +146,12 @@ edges to retime it, with snapping to the playhead and neighbouring edges; double
 zoom track to add a zoom; ⌘B splits the clip at the playhead; ⌫ deletes the selection
 (a deleted clip is a cut). The inspector has four tabs — Look (canvas presets 16:9, 9:16, 1:1,
 4:5 with fit or fill framing, crop, background, frame), Motion (automatic zooms, cursor
-including loop-cursor, motion blur), Overlays (the camera bubble, masks, keystroke display)
-and Audio (volumes, voice normalisation, noise removal) — and whatever is selected on the
-timeline gets its own card on top. The preview is editable too: drag the crop, a mask's region,
-the camera bubble or a zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosave.
+including loop-cursor, motion blur), Overlays (the camera bubble with shape, size, corner
+radius, position by corner preset or horizontal and vertical sliders, border, shadow, mirror
+and moving out of the cursor's way; masks; keystroke display) and Audio (volumes, voice
+normalisation, noise removal) — and whatever is selected on the timeline gets its own card
+on top. The preview is editable too: drag the crop, a mask's region, the camera bubble or a
+zoom's target. ⌘Z / ⇧⌘Z undo and redo; edits autosave.
 
 **Export** (⌘E, or Export… in the editor's toolbar) offers Web (MP4 H.264 1080p60), Social (30 fps, higher bitrate), Hand-off
 (ProRes 422 MOV) and GIF presets, or any combination of MP4/MOV/GIF, H.264/HEVC/ProRes,
@@ -154,12 +161,22 @@ the frame under the playhead as an image.
 **Share Link**, the editor's primary toolbar action and a button in the same sheet, renders
 the video as MP4 (the only format the backend serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
 a link like `https://share.example.com/v/…` that works for about three days; a finished
-MP4 export offers the same with Share…. Settings › Sharing sets this up: it needs `wrangler`
-installed and logged in to a Cloudflare account that already holds the domain you want
-the links on. Enter the domain, copy the one command Ketto shows, run it in Terminal, and
-Ketto connects on its own once the Worker answers. Shared Links in the sidebar lists what
-is currently shared so a link can be copied again or the video removed early, and a second
-Mac can join the same bucket by pasting the address and token.
+MP4 export offers the same with Share….
+
+The link opens a player page rather than the bare file: play/pause, a scrubber with buffered
+range and hover preview, 0.5× to 2× speed, volume, picture in picture, full screen, a download
+button and the usual keyboard shortcuts (space, J/K/L, arrows, M, F, 0–9). One page serves
+every link — the Worker renders it per request and streams the video from `/f/<id>` — so the
+player can be changed for every link that already exists by redeploying the Worker.
+
+Settings › Sharing sets this up through your coding agent: it needs `wrangler` on this Mac,
+logged in to a Cloudflare account that already holds the domain you want the links on. Enter
+the domain, press Copy Prompt, paste the prompt into your agent (Claude Code, Codex, Cursor…),
+and Ketto connects on its own once the Worker answers. The prompt names the folder Ketto wrote
+the Worker and its configuration to and spells out every wrangler step; the `setup.sh` in that
+folder runs the same steps for anyone who would rather use Terminal. Shared Links in the
+sidebar lists what is currently shared so a link can be copied again or the video removed
+early, and a second Mac can join the same bucket by pasting the address and token.
 
 **The app window** (the gear on the bar, ⌘L, or the menu bar item) holds the Library of
 projects grouped by day, Shared Links, and Settings: Recording (frame rate, countdown,

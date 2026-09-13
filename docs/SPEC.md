@@ -330,7 +330,10 @@ behaves.
   filmstrip, audio waveforms
 - Zoom blocks: add, delete, move, trim, retime, adjust scale and easing, with snapping
 - Trim, cut, split, and speed ramps on the main track
-- Webcam capture and overlay: shape, position, size, border; auto-dodge the cursor
+- Webcam capture and overlay: a floating bubble shows the camera on screen from the moment
+  it is switched on and through the recording (draggable, never captured; the edit opens
+  with the bubble where it was left); shape, position, size, corner radius, border;
+  auto-dodge the cursor
 - Aspect presets — 16:9, 9:16 vertical, 1:1, 4:5 — with zooms re-optimized for the crop
 - Crop
 - Masking: blur regions for sensitive info, and highlight masks for emphasis
@@ -372,21 +375,27 @@ pass on hardware is still to be done.
 
 **Goal:** stop → upload → shareable unlisted link in the clipboard. Loom-style.
 
-**Shipped: share links on the user's own Cloudflare account.** The user runs one command
-(wrangler, logged in to an account that already holds their domain) and every export can
-be shared as `https://<their domain>/v/<id>`, valid for about three days.
+**Shipped: share links on the user's own Cloudflare account.** The user hands one prompt to
+their coding agent (which runs wrangler, logged in to an account that already holds their
+domain) and every export can be shared as `https://<their domain>/v/<id>`, valid for about
+three days.
 
 How it is put together, and why:
 
 - **One Worker in front of a private R2 bucket.** The app ships the Worker source
   (`Ketto/Resources/CloudflareBackend/worker.js`) and a setup script. Settings › Sharing
   writes them to `~/Library/Application Support/Ketto/Cloudflare/` together with a
-  generated `wrangler.json`, `config.env` and a random 256-bit token, and shows the one
-  command to run. The script creates the bucket, adds a lifecycle rule (expire after
-  3 days, abort unfinished multipart uploads after 1 day), deploys the Worker on the
-  user's domain (wrangler creates the DNS record and certificate) and stores the token as
-  a Worker secret. The app polls `https://<domain>/api/status` with the token until the
-  Worker answers, then keeps the token in the Keychain and deletes it from disk.
+  generated `wrangler.json`, `config.env` and a random 256-bit token, and copies a prompt
+  for the user's coding agent (Claude Code, Codex, Cursor…) rather than a command: users
+  of Ketto drive their CLIs through agents, and an agent can also install or update
+  wrangler and diagnose a failed step. The prompt names the folder and the steps: create
+  the bucket, add a lifecycle rule (expire after 3 days, abort unfinished multipart
+  uploads after 1 day), deploy the Worker on the user's domain (wrangler creates the DNS
+  record and certificate) and store the token as a Worker secret, read from `secret.txt`
+  so it never appears in the prompt or the agent's transcript. `setup.sh` in the same
+  folder does the same steps for a Terminal. The app polls `https://<domain>/api/status`
+  with the token until the Worker answers, then keeps the token in the Keychain and
+  deletes it from disk.
 - **Uploads go through the Worker as R2 multipart parts** (`POST /api/uploads`, `PUT
   …/:n`, `POST …/complete`), 32 MiB each: Worker request bodies are capped at 100 MB on
   Free and Pro plans, and R2 needs equal-sized parts of at least 5 MiB. Presigned URLs
@@ -396,16 +405,24 @@ How it is put together, and why:
 - **Only holders of the token can write.** The bucket has no public access and the Worker
   is its only reader and writer; ids are 128 random bits, so links are unlisted but
   unguessable. A second Mac joins by pasting the address and token.
-- **The Worker serves the video** (`GET /v/:id` with Range support; `/f/:id` is reserved
-  for the raw file once `/v` becomes an HTML viewer, so links never change) and **lists
-  what is shared** (`GET /api/videos`), which a public bucket could not do.
+- **The Worker serves the viewer and the video.** `GET /v/:id` — the share link — answers
+  with an HTML player page; `GET /f/:id` serves the file itself with Range support, and
+  `?download=1` serves it as an attachment. The page is rendered per request from the
+  object's metadata and is not stored anywhere, so one page serves every link and
+  redeploying the Worker changes the player for links that already exist. It is
+  self-contained (no CDN, no fonts, no analytics) under a per-request nonce CSP, and the
+  title is escaped everywhere it appears. The Worker also **lists what is shared**
+  (`GET /api/videos`), which a public bucket could not do.
 - `CloudflareShareDestination` sits behind the v1 `PublishDestination` protocol. The
   Worker's contract is the header comment of `worker.js`; `WorkerTests/` runs it in the
   real Workers runtime.
 
 **Not yet:** resuming an upload after an app restart (the multipart state is easy to
-persist; the 1-day abort rule cleans up meanwhile), the HTML viewer page, parallel part
-uploads, and everything YouTube.
+persist; the 1-day abort rule cleans up meanwhile), parallel part uploads, an in-app way to
+redeploy the Worker after a Ketto update (today: Disconnect and set up again, or copy
+`worker.js` out of the app bundle and `wrangler deploy`), and everything YouTube. The viewer
+carries no comments, transcript or thumbnail; the page is laid out so those can land later
+without changing the link.
 
 **Still in scope**
 - `YouTubeDestination` — OAuth 2.0 + resumable upload, video set to unlisted
@@ -523,9 +540,8 @@ shareable-link comments and collaboration · Windows and Linux · team accounts.
    The App Store sandbox has implications for `CGEventTap` and user-supplied S3 buckets —
    decide before v3.
 2. ~~Do we ship our own share-page hosting for `S3Destination`, or hand the user a raw
-   object URL?~~ Resolved in v3: the user's own Worker serves the link, today as the raw
-   video with Range support, later as an HTML viewer at the same address with the file
-   moving to `/f/<id>`. Nothing is hosted by us.
+   object URL?~~ Resolved in v3: the user's own Worker serves the link as an HTML viewer at
+   `/v/<id>`, with the file at `/f/<id>`. Nothing is hosted by us.
 3. Auto-zoom tuning: ship one "intensity" slider, or expose the underlying clustering
    parameters to power users?
 4. Licensing and pricing model — affects whether v3 needs any server-side component at

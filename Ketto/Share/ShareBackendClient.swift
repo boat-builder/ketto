@@ -47,9 +47,9 @@ enum ShareBackendError: Error, LocalizedError, Equatable {
         case .unauthorized:
             return "The backend rejected the sharing token. Reconnect in Settings \u{203A} Sharing."
         case .notConfigured:
-            return "The backend has no token yet. Let the setup command finish, then try again."
+            return "The backend has no token yet. Let the setup finish, then try again."
         case .incompatible(let api):
-            return "The backend runs API version \(api) but this Ketto expects \(ShareBackendClient.apiVersion). Re-run the setup command from Settings \u{203A} Sharing."
+            return "The backend runs API version \(api) but this Ketto expects \(ShareBackendClient.apiVersion). Set up sharing again from Settings \u{203A} Sharing."
         case .server(let status, let message):
             return "The backend answered \(status): \(message)"
         case .invalidResponse:

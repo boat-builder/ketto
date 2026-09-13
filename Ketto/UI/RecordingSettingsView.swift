@@ -9,7 +9,6 @@ struct RecordingSettingsView: View {
     @Bindable var settings: CaptureSettings
 
     @State private var microphoneStatus = CapturePermissions.microphoneStatus
-    @State private var cameraStatus = CapturePermissions.cameraStatus
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,6 +48,23 @@ struct RecordingSettingsView: View {
             }
             .pickerStyle(.segmented)
             Toggle("Hide desktop icons while recording", isOn: $settings.hideDesktopIcons)
+            LabeledContent {
+                HStack(spacing: 8) {
+                    Slider(value: $settings.cameraBubbleSize, in: CameraBubbleController.sizeRange)
+                        .frame(width: 160)
+                    Text("\(Int((settings.cameraBubbleSize * 100).rounded())) %")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Camera bubble size")
+                    Text("With the camera on, your picture floats over the display as the bubble it becomes in the video. Drag it wherever it is least in the way; it is never captured.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Toggle(isOn: $settings.showsBarAtLaunch) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Show the capture bar at launch")
@@ -148,8 +164,8 @@ struct RecordingSettingsView: View {
             permissionRow(
                 "Camera",
                 symbol: "video",
-                state: Self.state(for: cameraStatus),
-                detail: Self.detail(for: cameraStatus, feature: "Needed for the camera bubble."),
+                state: Self.state(for: settings.cameraStatus),
+                detail: Self.detail(for: settings.cameraStatus, feature: "Needed for the camera bubble."),
                 allow: { Task { _ = await CapturePermissions.requestCamera(); refreshPermissions() } },
                 openSettings: { CapturePermissions.openCameraSettings() }
             )
@@ -239,6 +255,5 @@ struct RecordingSettingsView: View {
     private func refreshPermissions() {
         settings.refreshPermissions()
         microphoneStatus = CapturePermissions.microphoneStatus
-        cameraStatus = CapturePermissions.cameraStatus
     }
 }

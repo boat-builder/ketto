@@ -55,6 +55,19 @@ final class CaptureTests: XCTestCase {
         XCTAssertEqual(CMSampleBufferGetPresentationTimeStamp(original).seconds, 12, accuracy: 1e-9, "the original is untouched")
     }
 
+    func testCameraWarningExplainsAMissingOrLateCameraTrack() {
+        XCTAssertNil(RecordingSession.cameraWarning(for: CameraCapture.Outcome(frames: 120, receivedFrames: 150, firstFrameTime: 0.03, error: nil)), "a normal capture needs no warning")
+        let late = RecordingSession.cameraWarning(for: CameraCapture.Outcome(frames: 120, receivedFrames: 120, firstFrameTime: 2.4, error: nil))
+        XCTAssertTrue(late?.contains("2.4") ?? false, "a late start says how late: \(late ?? "nil")")
+        XCTAssertNotNil(RecordingSession.cameraWarning(for: nil), "camera on, never started")
+        let silent = RecordingSession.cameraWarning(for: CameraCapture.Outcome(frames: 0, receivedFrames: 0, firstFrameTime: nil, error: nil))
+        XCTAssertTrue(silent?.contains("no frames") ?? false, "\(silent ?? "nil")")
+        let failed = RecordingSession.cameraWarning(for: CameraCapture.Outcome(frames: 0, receivedFrames: 90, firstFrameTime: nil, error: "disk full"))
+        XCTAssertTrue(failed?.contains("disk full") ?? false, "\(failed ?? "nil")")
+        let early = RecordingSession.cameraWarning(for: CameraCapture.Outcome(frames: 0, receivedFrames: 90, firstFrameTime: nil, error: nil))
+        XCTAssertTrue(early?.contains("before") ?? false, "\(early ?? "nil")")
+    }
+
     func testCaptureSourceGeometry() {
         let main = CaptureDisplay(id: 1, name: "Main", frame: CGRect(x: 0, y: 0, width: 1728, height: 1117), pixelWidth: 3456, pixelHeight: 2234, scale: 2, isMain: true)
         let side = CaptureDisplay(id: 2, name: "Side", frame: CGRect(x: 1728, y: 0, width: 1920, height: 1080), pixelWidth: 1920, pixelHeight: 1080, scale: 1, isMain: false)

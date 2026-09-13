@@ -162,6 +162,10 @@ Worth knowing before touching any of it:
 - The inspector is four tabs (Look, Motion, Overlays, Audio); selecting a zoom or a mask
   on the timeline switches to the tab its controls live on, and the selection's own card
   is always on top whatever the tab.
+- The Camera section (Overlays) is always there: without a camera track it
+  says how to get one, with one it offers shape, size, aspect and corner radius
+  (rounded shape), position (corner presets, Horizontal / Vertical sliders, or
+  dragging in the preview), border, shadow, mirror and cursor dodging.
 
 ## Capture
 
@@ -174,6 +178,35 @@ Worth knowing before touching any of it:
   overlap of the first buffer after a pause; `EventRecorder.makeDocument`
   drops paused events; `CameraCapture` writes `camera.mov` directly in
   recording time (session starts at zero, frames at their recording time).
+- The camera starts during the countdown (`RecordingSession.prepare()`), so its
+  warm-up — typically a second or two — is over by the first screen frame and
+  the track begins with the recording; frames before the clock has a base are
+  dropped. `CameraCapture` runs `startRunning()` / `stopRunning()` (both block)
+  on a session queue separate from the frame queue, observes the session's
+  runtime-error notification, and `stop()` returns an `Outcome`: frames
+  written, frames the device delivered, the first frame's recording time and
+  any error. `RecordingSession.cameraWarning(for:)` turns that into the status
+  line under the editor's timeline when the track is missing or starts more
+  than 0.5 s late, so a camera that failed is never silent. A new recording with
+  a camera track starts out `mirrored` (the bubble showed a mirror image) and
+  placed where the floating bubble sat (`CameraPlacement.overlay(from:layout:)`
+  maps the bubble's centre and height, normalised in the captured area, onto
+  the default canvas).
+- The floating camera bubble (`CameraBubbleController`, `CameraBubblePanel`) is
+  a borderless, non-activating floating panel on every Space, movable by
+  dragging, holding an `AVCaptureVideoPreviewLayer` (mirrored) clipped to a
+  circle with the overlay's default border and shadow. Before a recording it
+  shows its own `CameraPreviewSource` session; `releaseCamera()` stops that
+  right before the countdown and `attach(_:)` swaps in the recording's session
+  once `prepare()` created it, so the device is never open twice. It is left
+  alone by `AppModel.hideSurfacesForCapture()` (like the HUD), excluded from the
+  capture like every Ketto window, and `EventRecorder` drops clicks on it. Its
+  position is kept in `UserDefaults`, normalised to the display, and clamped
+  back onto the display when shown. `AppModel.syncCameraBubble()` shows it
+  whenever the bar is up with the camera on (and asks for camera access the
+  first time), hides it when the bar closes, and a recording started with the
+  bar closed brings it up empty (`showAwaitingRecording`) until the recording's
+  own session is attached.
 - `CaptureSource` is a display, a window or a region (points, Core Graphics
   coordinates). Window capture uses `SCContentFilter(desktopIndependentWindow:)`
   and `EventRecorder` re-reads the window's frame every 0.5 s so event
@@ -221,13 +254,18 @@ Worth knowing before touching any of it:
 ## Sharing
 
 - The backend is the user's own: `Resources/CloudflareBackend/worker.js` in front of a
-  private R2 bucket, deployed by `setup.sh` from the same folder. `ShareSetupBundle`
-  writes both, plus `wrangler.json`, `config.env` and `secret.txt` (0600), to
-  `~/Library/Application Support/Ketto/Cloudflare/`. `ShareBackend.startWatching()` then
-  polls `/api/status` every 3 s with a 15-minute budget, resumed whenever the settings
-  page appears, and moves the token into the Keychain the moment the Worker answers. The
-  address lives in `UserDefaults` (`shareBackendURL`); the Keychain is only read once an
-  address exists, so nobody who never set up sharing sees a Keychain prompt.
+  private R2 bucket, deployed with wrangler by the user's coding agent. `ShareSetupBundle`
+  writes the Worker and `setup.sh`, plus `wrangler.json`, `config.env` and `secret.txt`
+  (0600), to `~/Library/Application Support/Ketto/Cloudflare/`, and builds the prompt
+  (`ShareSetupBundle.prompt`) that Copy Prompt puts on the clipboard: the absolute folder
+  path, every step with its wrangler command, the rules (touch nothing else, never print
+  the token) and how to verify. `setup.sh` runs steps 3–6 of the same list and the prompt
+  offers it as the short route; `ShareSetupBundleTests` checks the two agree.
+  `ShareBackend.startWatching()` then polls `/api/status` every 3 s with a 15-minute
+  budget, resumed whenever the settings page appears, and moves the token into the
+  Keychain the moment the Worker answers. The address lives in `UserDefaults`
+  (`shareBackendURL`); the Keychain is only read once an address exists, so nobody who
+  never set up sharing sees a Keychain prompt.
 - `worker.js` is the contract. `API_VERSION` there must equal
   `ShareBackendClient.apiVersion`: bump both when a route changes shape and the app
   refuses an older backend with a message to re-run setup. `PART_SIZE` is the Worker's to
@@ -243,10 +281,42 @@ Worth knowing before touching any of it:
 - Range requests: R2 fills in `object.range` even for a plain GET and quietly serves the
   whole object for a range it cannot satisfy, so the Worker parses the `Range` header
   itself to decide between 200, 206 and 416, and trusts `object.range` only for the
-  `Content-Range` numbers.
+  `Content-Range` numbers. `/f/:id?download=1` swaps the `Content-Disposition` to
+  `attachment`; everything else about the response is the same.
+- The viewer is `GET /v/:id` — the address every share link points at. `viewerPage` reads
+  the object's metadata (a `head`, no body) and renders the page from it, so there is one
+  player for every video, nothing viewer-shaped is stored in the bucket, and redeploying
+  the Worker re-skins links that already exist. The page streams from `/f/:id`, which is
+  why the split exists: `/v` can change shape freely while `/f` stays a plain file.
+  `VIEWER_CSS` and `VIEWER_JS` are inlined into it and carry a per-request nonce that the
+  `Content-Security-Policy` names, so the page needs neither `unsafe-inline` nor any
+  third-party origin — it loads no CDN, font or analytics, and `default-src 'none'` blocks
+  the rest. `VIEWER_JS` deliberately uses no template literals, because it is embedded in
+  one; a `\` inside either constant has to be doubled (a bare `\00b7` in the CSS is a
+  legacy octal escape and the bundler rejects the file).
+  The title is user-controlled and reaches the page through `escapeHTML` everywhere,
+  including the link-preview metadata; `WorkerTests` pins that.
+  The page renders itself `no-store`: it is built from live metadata, so a deleted video
+  must stop playing rather than linger in a cache. The bytes behind `/f` are what is worth
+  caching and keep their hour.
+- Player behaviour worth knowing: speed and volume persist per browser in `localStorage`
+  (wrapped in try/catch — private mode throws); `--ar` is set from `videoWidth/videoHeight`
+  on `loadedmetadata` so the box stops being 16:9 for a vertical recording, with
+  `object-fit: contain` as the backstop; controls hide after 2.6 s of stillness only while
+  playing; `ended` drops `is-started` so the centre button returns as a replay; the
+  picture-in-picture button removes itself where the browser has no PiP, and full screen
+  falls back to `webkitEnterFullscreen` on the video for iPhone, which has no element
+  full screen.
+- Updating a deployed Worker: `ShareSetupBundle.write()` runs only from the disconnected
+  setup flow, and `secret.txt` is deleted once the app connects, so a Ketto update does not
+  reach a backend that is already live. Until there is an in-app path, the folder's
+  `worker.js` has to be replaced from the app bundle and `wrangler deploy` re-run (the
+  secret is already in the Worker), or the user disconnects and sets up again — same
+  bucket, so shared videos survive, but a new token.
 - Invariants: the bucket is never public; the token exists only in the Worker secret, the
-  Keychain, and `secret.txt` for the minutes between generating the command and the
-  Worker answering; the address must be HTTPS. Plain HTTP is accepted for `localhost`
+  Keychain, and `secret.txt` for the minutes between copying the prompt and the Worker
+  answering — never in the prompt itself, which would put it on the clipboard and in the
+  agent's transcript; the address must be HTTPS. Plain HTTP is accepted for `localhost`
   only, which `NSAllowsLocalNetworking` in `Info.plist` permits, for `wrangler dev`.
 - `WorkerTests/` runs the Worker inside the real runtime (`npm test`) and is where
   `npx wrangler dev` serves it locally. Its `wrangler.jsonc` mirrors the config the app
@@ -303,6 +373,14 @@ annotations in system frameworks rather than defects here, and all three are del
 - Live preview: if the first frame never appears, check that
   `AVPlayerItemVideoOutput.hasNewPixelBuffer` starts returning true after the item is
   ready; `PreviewPlayer.pollFrame` re-arms both outputs every 60 misses.
+- The camera bubble: if it ever shows up in a recording, check that `ScreenCaptureEngine`
+  still excludes Ketto's own windows, and — in `hideDesktopIcons` mode, where the
+  exclusion is a window list taken when the stream starts — that the panel already existed
+  then (it is created when the camera is switched on in the capture bar). If the bubble goes
+  black during the countdown and stays black, `RecordingSession.prepare()` threw or the
+  attach in `AppModel.startRecording` never ran; if the recording's camera reports the
+  device busy, `CameraBubbleController.releaseCamera()` was not awaited before the
+  countdown started.
 - Camera sync: both players are started at one host time. If the camera ever drifts,
   check that `automaticallyWaitsToMinimizeStalling` is still false on both (it is required
   by `setRate(_:time:atHostTime:)`) and that the camera composition was built from the

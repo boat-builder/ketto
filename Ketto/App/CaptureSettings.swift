@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import AVFoundation
 import CoreGraphics
 import Observation
 
@@ -45,6 +46,7 @@ final class CaptureSettings {
         static let countdown = "recordingCountdownSeconds"
         static let showsBarAtLaunch = "showsCaptureBarAtLaunch"
         static let storageDirectory = "recordingStorageDirectory"
+        static let cameraBubbleSize = "cameraBubbleSize"
     }
 
     static let countdownChoices = [0, 3, 5, 10]
@@ -142,6 +144,17 @@ final class CaptureSettings {
         set { withMutation(keyPath: \.storageDirectory) { defaults.set(newValue.path, forKey: Keys.storageDirectory) } }
     }
 
+    /// Height of the floating camera bubble as a fraction of the display height.
+    var cameraBubbleSize: Double {
+        get {
+            access(keyPath: \.cameraBubbleSize)
+            let stored = defaults.object(forKey: Keys.cameraBubbleSize) as? Double ?? CameraBubbleController.defaultSizeFraction
+            let range = CameraBubbleController.sizeRange
+            return stored.isFinite ? min(max(stored, range.lowerBound), range.upperBound) : CameraBubbleController.defaultSizeFraction
+        }
+        set { withMutation(keyPath: \.cameraBubbleSize) { defaults.set(newValue, forKey: Keys.cameraBubbleSize) } }
+    }
+
     var usesDefaultStorageDirectory: Bool {
         storageDirectory.standardizedFileURL == ProjectLibrary.defaultDirectory.standardizedFileURL
     }
@@ -161,6 +174,7 @@ final class CaptureSettings {
     private(set) var cameras: [CameraDevice] = []
     private(set) var screenRecordingGranted = false
     private(set) var accessibilityTrusted = false
+    private(set) var cameraStatus: AVAuthorizationStatus = .notDetermined
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -216,7 +230,7 @@ final class CaptureSettings {
             recordMicrophone: recordMicrophone && !microphones.isEmpty,
             microphoneDeviceID: selectedMicrophone?.id,
             recordSystemAudio: recordSystemAudio,
-            recordCamera: recordCamera && !cameras.isEmpty,
+            recordCamera: recordCamera && cameraStatus == .authorized && !cameras.isEmpty,
             cameraDeviceID: selectedCamera?.id,
             keystrokes: keystrokeMode,
             hideDesktopIcons: hideDesktopIcons,
@@ -237,6 +251,7 @@ final class CaptureSettings {
     func refreshPermissions() {
         screenRecordingGranted = CapturePermissions.screenRecordingGranted
         accessibilityTrusted = CapturePermissions.accessibilityTrusted
+        cameraStatus = CapturePermissions.cameraStatus
     }
 
     func refreshDisplays() {

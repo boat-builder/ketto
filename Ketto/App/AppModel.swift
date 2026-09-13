@@ -61,6 +61,11 @@ final class AppModel {
     var page: AppPage = .library
     /// Statistics of the most recent recording, shown in the editor's status line.
     private(set) var lastRecordingStatistics: RecordingStatistics?
+    /// The bundle `lastRecordingStatistics` describe, so the editor only shows them for that project.
+    private(set) var lastRecordedBundle: RecordingBundle?
+    /// The floating camera bubble. The bar shows it while the camera is switched on; it stays through the
+    /// countdown and the recording, showing the camera as it is being recorded.
+    let cameraBubble = CameraBubbleController()
     /// Bumped whenever the project library may have changed so its views refresh.
     private(set) var libraryRevision = 0
     /// The projects in the storage folder, newest first. The menu bar item shows the first three.
@@ -165,10 +170,39 @@ final class AppModel {
             bar = CaptureBarPanel(model: self)
         }
         bar?.show()
+        syncCameraBubble()
     }
 
     func hideCaptureBar() {
         bar?.hide()
+        syncCameraBubble()
+    }
+
+    /// Keeps the floating camera bubble in step with the bar: shown on the display that will be recorded, from
+    /// the chosen camera, at the chosen size, whenever the bar is up with the camera on and usable; hidden
+    /// otherwise. Asks for camera access the first time the camera is switched on. During a capture the bubble
+    /// belongs to the recording and is left alone.
+    func syncCameraBubble() {
+        guard !isRecording else { return }
+        guard isCaptureBarVisible, settings.recordCamera else {
+            cameraBubble.hide()
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            if self.settings.cameraStatus == .notDetermined {
+                _ = await CapturePermissions.requestCamera()
+                self.settings.refreshPermissions()
+                self.settings.refreshDevices()
+            }
+            guard !self.isRecording, self.isCaptureBarVisible, self.settings.recordCamera else { return }
+            if self.settings.cameraStatus == .authorized, !self.settings.cameras.isEmpty,
+               let display = self.settings.source?.display ?? self.settings.selectedDisplay {
+                self.cameraBubble.show(on: display, deviceID: self.settings.selectedCamera?.id, sizeFraction: self.settings.cameraBubbleSize)
+            } else {
+                self.cameraBubble.hide()
+            }
+        }
     }
 
     func toggleCaptureBar() {
@@ -234,7 +268,13 @@ final class AppModel {
             showCaptureBar()
             return
         }
-        startRecording(configuration: configuration)
+        Task { [weak self] in
+            guard let self else { return }
+            // The bubble's preview lets go of the camera so the recording's own capture session can take it; the
+            // bubble comes back with the live recording during the countdown.
+            await self.cameraBubble.releaseCamera()
+            self.startRecording(configuration: configuration)
+        }
     }
 
     /// ⇧⌘R: starts a recording, cancels a countdown, or stops the recording in progress.
@@ -273,32 +313,54 @@ final class AppModel {
         }
         hideSurfacesForCapture()
         presentHUD(for: configuration.display)
+        if configuration.recordCamera, !cameraBubble.isShowing {
+            // Recording from the menu bar or a hot key with the bar closed: the bubble comes up for the recording.
+            cameraBubble.showAwaitingRecording(on: configuration.display, sizeFraction: settings.cameraBubbleSize)
+        }
         let seconds = settings.countdownSeconds
         phase = .countdown(max(seconds, 0))
         countdownTask = Task { [weak self] in
             guard let self else { return }
+            // The camera warms up during the countdown, so its track starts with the first screen frame; the
+            // bubble shows the recording's own camera as soon as it runs.
+            let bubble = self.cameraBubble
+            let preparation = Task {
+                try await session.prepare()
+                if let capture = session.cameraPreviewSession { bubble.attach(capture) }
+            }
             if seconds > 0 {
                 for remaining in stride(from: seconds, through: 1, by: -1) {
                     self.phase = .countdown(remaining)
                     do {
                         try await Task.sleep(for: .seconds(1))
                     } catch {
-                        self.abortRecording(message: nil)
+                        await self.abandonCountdown(session, preparation: preparation)
                         return
                     }
                 }
             }
             guard !Task.isCancelled else {
-                self.abortRecording(message: nil)
+                await self.abandonCountdown(session, preparation: preparation)
                 return
             }
             do {
+                try await preparation.value
                 try await session.start()
                 self.phase = .recording(session)
             } catch {
+                await session.cancelPreparation()
+                self.cameraBubble.detachRecording()
                 self.abortRecording(message: error.localizedDescription)
             }
         }
+    }
+
+    /// The countdown was cancelled: let the camera warm-up finish, then release it and go back to the bar.
+    private func abandonCountdown(_ session: RecordingSession, preparation: Task<Void, Error>) async {
+        _ = await preparation.result
+        await session.cancelPreparation()
+        cameraBubble.detachRecording()
+        abortRecording(message: nil)
     }
 
     /// Cancels a countdown before capture starts.
@@ -320,17 +382,22 @@ final class AppModel {
     /// Stops capture, finalises the bundle and opens it in the editor.
     func stopRecording() {
         guard case .recording(let session) = phase else { return }
+        // Where the bubble was left is where the camera overlay starts out in the edit.
+        session.cameraPlacement = cameraBubble.placement(in: session.configuration.source.frame)
         phase = .finishing
         Task { [weak self] in
             guard let self else { return }
             do {
                 let bundle = try await session.stop()
+                self.cameraBubble.detachRecording()
                 self.lastRecordingStatistics = session.statistics
+                self.lastRecordedBundle = bundle
                 self.dismissHUD()
                 self.restoreSurfacesAfterCapture(showBar: false)
                 self.refreshLibrary()
                 self.openProject(bundle: bundle)
             } catch {
+                self.cameraBubble.detachRecording()
                 self.dismissHUD()
                 self.phase = .idle
                 self.restoreSurfacesAfterCapture(showBar: self.barWasVisibleBeforeCapture)
@@ -353,6 +420,7 @@ final class AppModel {
         do {
             let session = try ProjectSession(bundle: bundle)
             closeProject()
+            cameraBubble.hide()
             phase = .editing(session)
             hideCaptureBar()
             showMainWindow()
@@ -483,7 +551,10 @@ final class AppModel {
         updates?.setDeferred(true)
         barWasVisibleBeforeCapture = isCaptureBarVisible
         bar?.hide()
-        hiddenWindows = NSApplication.shared.windows.filter { $0.isVisible && !($0 is RecordHUDPanel) && !($0 is CaptureBarPanel) }
+        // The HUD and the camera bubble are meant to stay: neither is ever captured.
+        hiddenWindows = NSApplication.shared.windows.filter {
+            $0.isVisible && !($0 is RecordHUDPanel) && !($0 is CaptureBarPanel) && !($0 is CameraBubblePanel)
+        }
         for window in hiddenWindows {
             window.orderOut(nil)
         }
@@ -498,6 +569,8 @@ final class AppModel {
         }
         if showBar {
             showCaptureBar()
+        } else {
+            syncCameraBubble()
         }
         if !windows.isEmpty {
             NSApplication.shared.activate()

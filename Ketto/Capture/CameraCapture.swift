@@ -1,6 +1,7 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CoreMedia
+import os
 
 struct CameraDevice: Identifiable, Hashable, Sendable {
     let id: String
@@ -20,21 +21,47 @@ struct CameraDevice: Identifiable, Hashable, Sendable {
 /// timestamps are converted to the host clock and mapped through the shared `RecordingClock`, so the camera
 /// lines up with the screen and the audio, frames captured during a pause are dropped, and the file starts at
 /// recording time zero whatever the camera's warm-up took.
+///
+/// The capture session can be started ahead of the recording (`RecordingSession.prepare()` does so during the
+/// countdown) so the camera has warmed up by the first screen frame: frames that arrive before the clock has a
+/// base are simply dropped, and the track begins with the recording instead of a second or two in.
 final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+    /// What a capture ended with. `frames` is the number written to `camera.mov` (0 means the file was removed);
+    /// `receivedFrames` counts everything the device delivered, warm-up included, so a camera that never produced
+    /// a picture can be told apart from a writer failure. `firstFrameTime` is the recording time of the first
+    /// frame in the file.
+    struct Outcome: Equatable, Sendable {
+        var frames: Int
+        var receivedFrames: Int
+        var firstFrameTime: Double?
+        /// A description of what went wrong, when something did.
+        var error: String?
+    }
+
     let url: URL
-    private let session = AVCaptureSession()
+    /// The capture session, so a live preview (`CameraPreviewView`) can show what is being recorded.
+    let captureSession = AVCaptureSession()
     private let output = AVCaptureVideoDataOutput()
     private let clock: RecordingClock
+    /// `startRunning()` and `stopRunning()` block until the session has actually started or stopped, so they run
+    /// on their own queue rather than on the one that delivers frames.
+    private let sessionQueue = DispatchQueue(label: "cc.ketto.capture.camera.session", qos: .userInitiated)
+    /// Delivers frames and owns the writer.
     private let queue = DispatchQueue(label: "cc.ketto.capture.camera", qos: .userInitiated)
+    private let runtimeError = OSAllocatedUnfairLock<String?>(initialState: nil)
+    private var runtimeErrorObserver: NSObjectProtocol?
 
     // Touched only on `queue`.
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var sessionStarted = false
+    private var stopped = false
     private var lastTime: CMTime?
+    private var firstFrameTime: Double?
     private var failed = false
-    private(set) var appendedFrames = 0
-    private(set) var error: Error?
+    private var appendedFrames = 0
+    private var receivedFrames = 0
+    private var writeError: Error?
 
     private static let timescale: CMTimeScale = 600
 
@@ -49,46 +76,75 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             device = AVCaptureDevice.default(for: .video)
         }
         guard let device else { throw CaptureError.writerSetupFailed("No camera is available") }
-        session.beginConfiguration()
-        if session.canSetSessionPreset(.hd1280x720) {
-            session.sessionPreset = .hd1280x720
-        } else if session.canSetSessionPreset(.high) {
-            session.sessionPreset = .high
+        captureSession.beginConfiguration()
+        if captureSession.canSetSessionPreset(.hd1280x720) {
+            captureSession.sessionPreset = .hd1280x720
+        } else if captureSession.canSetSessionPreset(.high) {
+            captureSession.sessionPreset = .high
         }
         let input = try AVCaptureDeviceInput(device: device)
-        guard session.canAddInput(input) else { throw CaptureError.writerSetupFailed("Cannot use the selected camera") }
-        session.addInput(input)
+        guard captureSession.canAddInput(input) else { throw CaptureError.writerSetupFailed("Cannot use the selected camera") }
+        captureSession.addInput(input)
         output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
-        guard session.canAddOutput(output) else { throw CaptureError.writerSetupFailed("Cannot add camera output") }
-        session.addOutput(output)
-        session.commitConfiguration()
+        guard captureSession.canAddOutput(output) else { throw CaptureError.writerSetupFailed("Cannot add camera output") }
+        captureSession.addOutput(output)
+        captureSession.commitConfiguration()
         try? FileManager.default.removeItem(at: url)
-    }
-
-    func start() {
-        queue.async { [session] in
-            session.startRunning()
+        // A camera that is unplugged or claimed by another process mid-recording stops the session with an
+        // error rather than an exception; remember it so the outcome can say what happened.
+        runtimeErrorObserver = NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: captureSession, queue: nil) { [weak self] note in
+            let message = (note.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription ?? "the camera stopped unexpectedly"
+            self?.runtimeError.withLock { $0 = $0 ?? message }
         }
     }
 
-    /// Stops the camera and finalises the file. Returns false when no frame was written (the file is removed).
-    @discardableResult
-    func stop() async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            queue.async { [self] in
-                session.stopRunning()
-                guard let writer, writer.status == .writing, appendedFrames > 0 else {
-                    if let writer, writer.status == .writing { writer.cancelWriting() }
-                    try? FileManager.default.removeItem(at: url)
-                    continuation.resume(returning: false)
-                    return
+    deinit {
+        if let runtimeErrorObserver { NotificationCenter.default.removeObserver(runtimeErrorObserver) }
+    }
+
+    /// Starts the camera. Safe to call before the recording clock exists: frames are dropped until it does.
+    func start() {
+        sessionQueue.async { [captureSession] in
+            if !captureSession.isRunning { captureSession.startRunning() }
+        }
+    }
+
+    /// Stops the camera and finalises the file. When no frame was written the file is removed and `frames` is 0.
+    func stop() async -> Outcome {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Outcome, Never>) in
+            sessionQueue.async { [self] in
+                if captureSession.isRunning { captureSession.stopRunning() }
+                // Frames already queued for delivery are handled first; the queue is serial.
+                queue.async { [self] in
+                    finish(continuation)
                 }
-                input?.markAsFinished()
-                writer.finishWriting { [self] in
-                    continuation.resume(returning: self.finishedSuccessfully())
-                }
+            }
+        }
+    }
+
+    /// On `queue`, once the session has stopped: closes the file, or removes it when nothing was written.
+    private func finish(_ continuation: CheckedContinuation<Outcome, Never>) {
+        stopped = true
+        let received = receivedFrames
+        let error = writeError?.localizedDescription ?? runtimeError.withLock { $0 }
+        guard let writer, let input, writer.status == .writing, appendedFrames > 0 else {
+            if let writer, writer.status == .writing { writer.cancelWriting() }
+            try? FileManager.default.removeItem(at: url)
+            continuation.resume(returning: Outcome(frames: 0, receivedFrames: received, firstFrameTime: nil, error: error))
+            return
+        }
+        input.markAsFinished()
+        let frames = appendedFrames
+        let firstFrame = self.firstFrameTime
+        writer.finishWriting { [self] in
+            // Nothing touches the writer any more once `finishWriting` has completed.
+            if finishedSuccessfully() {
+                continuation.resume(returning: Outcome(frames: frames, receivedFrames: received, firstFrameTime: firstFrame, error: nil))
+            } else {
+                try? FileManager.default.removeItem(at: url)
+                continuation.resume(returning: Outcome(frames: 0, receivedFrames: received, firstFrameTime: nil, error: finishError() ?? error))
             }
         }
     }
@@ -98,10 +154,15 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         writer?.status == .completed
     }
 
+    private func finishError() -> String? {
+        writer?.error?.localizedDescription
+    }
+
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard !failed, let image = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard !stopped, !failed, let image = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        receivedFrames += 1
         var pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        if let sourceClock = session.synchronizationClock, CFEqual(sourceClock, CMClockGetHostTimeClock()) == false {
+        if let sourceClock = captureSession.synchronizationClock, CFEqual(sourceClock, CMClockGetHostTimeClock()) == false {
             pts = CMSyncConvertTime(pts, from: sourceClock, to: CMClockGetHostTimeClock())
         }
         guard let recordingTime = clock.recordingTime(forHost: pts.seconds), recordingTime >= 0 else { return }
@@ -118,15 +179,16 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             }
             guard input.isReadyForMoreMediaData, let retimed = VideoTrackWriter.retimed(sampleBuffer, to: time) else { return }
             if input.append(retimed) {
+                if appendedFrames == 0 { firstFrameTime = recordingTime }
                 appendedFrames += 1
                 lastTime = time
             } else if writer.status == .failed {
                 failed = true
-                error = writer.error
+                writeError = writer.error
             }
         } catch {
             failed = true
-            self.error = error
+            writeError = error
         }
     }
 

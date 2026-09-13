@@ -1,10 +1,11 @@
 /**
  * Ketto sharing backend: one Cloudflare Worker in front of a private R2 bucket.
  *
- * Ketto writes this file next to setup.sh and deploys it with wrangler on the user's own
- * Cloudflare account. Finished exports are uploaded here as multipart parts; viewers get
- * links to /v/<id>. The bucket is never public, so only this Worker reads or writes it, and
- * only callers holding KETTO_TOKEN can write. A lifecycle rule on the bucket (set up by
+ * Ketto writes this file next to wrangler.json and setup.sh, and the user's coding agent (or
+ * setup.sh) deploys it with wrangler on the user's own Cloudflare account. Finished exports
+ * are uploaded here as multipart parts; viewers get links to /v/<id>, which serves a player
+ * page around the file at /f/<id>. The bucket is never public, so only this Worker reads or
+ * writes it, and only callers holding KETTO_TOKEN can write. A lifecycle rule on the bucket (set up by
  * setup.sh) deletes objects about three days after upload.
  *
  * Bindings: VIDEOS (R2 bucket), BUCKET_NAME (var, informational),
@@ -24,10 +25,11 @@
  *   DELETE /api/uploads/:id/:uploadId             auth  abort -> 204
  *   GET    /api/videos                            auth  { videos: [{ id, title, size, uploaded, expires, url }] }
  *   DELETE /api/videos/:id                        auth  -> 204
- *   GET    /v/:id  and  /f/:id                          the video, Range requests honoured.
- *                                                       /v is the share link; /f will keep
- *                                                       serving the raw file once /v becomes
- *                                                       an HTML viewer.
+ *   GET    /v/:id                                        the share link: an HTML viewer page,
+ *                                                       rendered here per request, that streams
+ *                                                       the video from /f/:id.
+ *   GET    /f/:id                                        the video itself, Range requests honoured.
+ *                                                       ?download=1 serves it as an attachment.
  *
  * Errors are JSON `{ error }` with a matching status. Anything under /api answers 503 while
  * KETTO_TOKEN is not set (between `wrangler deploy` and `wrangler secret put`).
@@ -48,8 +50,10 @@ const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 const routes = [
   ["GET", /^\/$/, () => json({ service: "ketto-share", api: API_VERSION })],
   ["HEAD", /^\/$/, () => json({ service: "ketto-share", api: API_VERSION })],
-  ["GET", new RegExp(`^/(?:v|f)/(${ID_PATTERN})$`), serveVideo],
-  ["HEAD", new RegExp(`^/(?:v|f)/(${ID_PATTERN})$`), serveVideo],
+  ["GET", new RegExp(`^/v/(${ID_PATTERN})$`), viewerPage],
+  ["HEAD", new RegExp(`^/v/(${ID_PATTERN})$`), viewerPage],
+  ["GET", new RegExp(`^/f/(${ID_PATTERN})$`), serveVideo],
+  ["HEAD", new RegExp(`^/f/(${ID_PATTERN})$`), serveVideo],
   ["GET", /^\/api\/status$/, status, "auth"],
   ["POST", /^\/api\/uploads$/, createUpload, "auth"],
   ["PUT", new RegExp(`^/api/uploads/(${ID_PATTERN})/([^/]+)/(\\d+)$`), uploadPart, "auth"],
@@ -90,7 +94,7 @@ async function route(request, env) {
 
 async function authorize(request, env) {
   if (!env.KETTO_TOKEN) {
-    return json({ error: "The backend has no token yet. Finish the Ketto setup command (it runs `wrangler secret put KETTO_TOKEN`)." }, 503);
+    return json({ error: "The backend has no token yet. Finish the Ketto setup: `wrangler secret put KETTO_TOKEN` has not run." }, 503);
   }
   const header = request.headers.get("Authorization") || "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
@@ -208,12 +212,13 @@ async function deleteVideo({ env }, id) {
 
 // MARK: - Serving
 
-async function serveVideo({ request, env }, id) {
+async function serveVideo({ request, env, url }, id) {
   const key = keyFor(id);
+  const download = url.searchParams.get("download") === "1";
   if (request.method === "HEAD") {
     const head = await env.VIDEOS.head(key);
     if (!head) return notFoundPage();
-    const headers = videoHeaders(head);
+    const headers = videoHeaders(head, download);
     headers.set("Content-Length", String(head.size));
     return new Response(null, { status: 200, headers });
   }
@@ -227,7 +232,7 @@ async function serveVideo({ request, env }, id) {
   const object = await env.VIDEOS.get(key, options);
   if (!object) return notFoundPage();
 
-  const headers = videoHeaders(object);
+  const headers = videoHeaders(object, download);
   if (!object.body) {
     // Precondition (If-None-Match / If-Modified-Since) not met: metadata only, no body.
     return new Response(null, { status: 304, headers });
@@ -280,7 +285,7 @@ function resolveRange(range, size) {
   return { start, end: Math.min(end, size - 1) };
 }
 
-function videoHeaders(object) {
+function videoHeaders(object, download = false) {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "video/mp4");
@@ -290,27 +295,649 @@ function videoHeaders(object) {
   headers.set("Cache-Control", "public, max-age=3600");
   headers.set("X-Content-Type-Options", "nosniff");
   const title = (object.customMetadata && object.customMetadata.title) || "video";
-  headers.set("Content-Disposition", `inline; filename="${asciiFilename(title)}.mp4"; filename*=UTF-8''${encodeURIComponent(title)}.mp4`);
+  const disposition = download ? "attachment" : "inline";
+  headers.set("Content-Disposition", `${disposition}; filename="${asciiFilename(title)}.mp4"; filename*=UTF-8''${encodeURIComponent(title)}.mp4`);
   return headers;
 }
 
+/** Shown for an id that is gone or was never real, at /v and /f alike. Styled like the viewer, since it is the
+ *  other thing a share link can land on. */
 function notFoundPage() {
   const html = `<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Video not available</title>
+<title>Video not available \u00b7 Ketto</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0c0715">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}">
 <style>
-  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1c1c1e; background: #f2f2f7; margin: 0; }
-  main { max-width: 32rem; margin: 20vh auto; padding: 2rem; background: #fff; border-radius: 16px; }
-  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
-  p { margin: 0; color: #6e6e73; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+    background: #0c0715 radial-gradient(120% 85% at 50% 0%, #251047 0%, #0c0715 60%) no-repeat;
+    color: #f4f1f8; text-align: center;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg { width: 54px; height: 54px; margin: 0 auto 18px; border-radius: 13px; opacity: .9; }
+  h1 { font-size: 19px; font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; }
+  p { margin: 0 auto; max-width: 30rem; color: #a79fba; }
 </style>
 <main>
+  ${LOGO_SVG}
   <h1>This video isn't available</h1>
   <p>Ketto share links stop working about three days after the video was shared, or sooner if the owner removed it.</p>
 </main>
 `;
-  return new Response(html, { status: 404, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  return new Response(html, {
+    status: 404,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+// MARK: - Viewer
+
+/** The app icon, used inline in the header and, percent-encoded, as the favicon. */
+const LOGO_SVG =
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024' aria-hidden='true'>" +
+  "<rect x='40' y='40' width='944' height='944' rx='224' fill='#2D126B'/>" +
+  "<circle cx='512' cy='512' r='264' fill='none' stroke='#FF625F' stroke-width='112' stroke-linecap='round'" +
+  " stroke-dasharray='1393 266' transform='rotate(-29 512 512)'/>" +
+  "<circle cx='512' cy='512' r='92' fill='#FF625F'/></svg>";
+
+const VIEWER_CSS = `
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --text: #f4f1f8;
+  --muted: #a79fba;
+  --accent: #ff625f;
+  --surface: rgba(255, 255, 255, .08);
+  --surface-hover: rgba(255, 255, 255, .16);
+  --radius: 14px;
+  /* The stage's real size, measured in JS; these cover the first paint and JS being off. */
+  --fit: calc(100vh - 110px);
+  --wide: calc(100vw - 52px);
+  --arn: 1.7778;
+}
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0c0715 radial-gradient(120% 85% at 50% 0%, #251047 0%, #0c0715 60%) no-repeat;
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: 0; margin: 0; padding: 0; cursor: pointer; }
+svg { display: block; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Header */
+.top { display: flex; align-items: center; gap: 12px; padding: 14px clamp(14px, 3vw, 26px); }
+.logo { width: 28px; height: 28px; flex: none; border-radius: 7px; overflow: hidden; }
+.heading { flex: 1 1 auto; min-width: 0; }
+.heading h1 {
+  margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#expiry:not(:empty)::before { content: " \\00b7  "; }
+.download {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 13px; border-radius: 9px; background: var(--surface);
+  color: var(--text); text-decoration: none; font-size: 13.5px; font-weight: 500;
+  transition: background .15s;
+}
+.download:hover { background: var(--surface-hover); }
+.download svg { width: 15px; height: 15px; }
+@media (max-width: 560px) { .download span { display: none; } .download { padding: 8px; } }
+
+/* Stage */
+.stage {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 clamp(0px, 3vw, 26px) clamp(14px, 3vh, 26px);
+}
+.player {
+  position: relative;
+  max-width: 100%;
+  line-height: 0;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
+  user-select: none; -webkit-user-select: none;
+}
+.player video {
+  display: block;
+  /* Every term is a length: a percentage here would resolve against the player, whose own
+     width is what the video is deciding. */
+  aspect-ratio: var(--arn);
+  width: min(var(--wide), 1600px, calc(var(--fit) * var(--arn)));
+  height: auto;
+  object-fit: contain;
+  background: #000;
+}
+.player:fullscreen { max-width: none; border-radius: 0; }
+.player:fullscreen video { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; }
+.player:-webkit-full-screen { max-width: none; border-radius: 0; }
+.player:-webkit-full-screen video { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; }
+
+/* Centre play button and spinner */
+.poster {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgba(6, 3, 12, .32); transition: opacity .2s;
+}
+.player.is-started .poster { opacity: 0; pointer-events: none; }
+.poster i {
+  display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 10px 34px rgba(255, 98, 95, .45);
+  transition: transform .15s;
+}
+.poster:hover i { transform: scale(1.06); }
+.poster svg { width: 30px; height: 30px; margin-left: 4px; fill: #fff; }
+.spinner {
+  position: absolute; top: 50%; left: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px;
+  border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; border-radius: 50%;
+  opacity: 0; pointer-events: none;
+}
+.player.is-waiting .spinner { opacity: 1; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error {
+  position: absolute; inset: 0; display: none; place-items: center; text-align: center;
+  padding: 24px; background: #0c0715; color: var(--muted); font-size: 14px;
+}
+.player.is-broken .error { display: grid; }
+.player.is-broken .poster, .player.is-broken .controls, .player.is-broken .scrim { display: none; }
+
+/* Controls */
+.scrim {
+  position: absolute; inset: auto 0 0; height: 45%; pointer-events: none;
+  background: linear-gradient(to top, rgba(6, 3, 12, .85), rgba(6, 3, 12, 0));
+  transition: opacity .25s;
+}
+.controls {
+  position: absolute; inset: auto 0 0;
+  padding: 0 clamp(8px, 1.6vw, 16px) clamp(8px, 1.4vw, 12px);
+  transition: opacity .25s;
+}
+.player.is-idle .controls, .player.is-idle .scrim { opacity: 0; }
+.player.is-idle .controls { pointer-events: none; }
+.player.is-idle { cursor: none; }
+
+.scrub { position: relative; padding: 10px 0; cursor: pointer; touch-action: none; }
+.track { position: relative; height: 4px; border-radius: 3px; background: rgba(255, 255, 255, .25); transition: height .12s; }
+.scrub:hover .track, .player.is-scrubbing .track { height: 7px; }
+.buffered, .played { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.buffered { background: rgba(255, 255, 255, .3); }
+.played { background: var(--accent); }
+.knob {
+  position: absolute; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px;
+  border-radius: 50%; background: #fff; transform: scale(0); transition: transform .12s;
+}
+.scrub:hover .knob, .player.is-scrubbing .knob { transform: scale(1); }
+.bubble {
+  position: absolute; bottom: 26px; padding: 3px 7px; border-radius: 6px;
+  background: rgba(6, 3, 12, .9); font-size: 12px; font-variant-numeric: tabular-nums;
+  transform: translateX(-50%); opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.scrub:hover .bubble, .player.is-scrubbing .bubble { opacity: 1; }
+
+.row { display: flex; align-items: center; gap: 4px; }
+.row .ctl {
+  display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px;
+  color: #fff; opacity: .92; transition: background .15s, opacity .15s;
+}
+.row .ctl:hover { background: var(--surface-hover); opacity: 1; }
+.row .ctl svg { width: 19px; height: 19px; fill: currentColor; }
+.play svg { width: 22px; height: 22px; }
+.spacer { flex: 1 1 auto; }
+.clock { padding: 0 8px; font-size: 13px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, .9); }
+.clock .total { color: var(--muted); }
+
+.player .pause, .player.is-playing .play-icon { display: none; }
+.player.is-playing .pause { display: block; }
+.player .unmute, .player.is-muted .volume-icon { display: none; }
+.player.is-muted .unmute { display: block; }
+.player .shrink, .player.is-full .expand { display: none; }
+.player.is-full .shrink { display: block; }
+
+.volume { display: flex; align-items: center; }
+.volume input {
+  width: 0; opacity: 0; margin: 0 0 0 2px; padding: 0; height: 4px; cursor: pointer;
+  -webkit-appearance: none; appearance: none; background: transparent;
+  transition: width .18s, opacity .18s;
+}
+.volume:hover input, .volume input:focus-visible { width: 74px; opacity: 1; margin-left: 6px; }
+.volume input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 3px;
+  background: linear-gradient(to right, #fff var(--fill, 100%), rgba(255, 255, 255, .3) var(--fill, 100%));
+}
+.volume input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -4px;
+  border-radius: 50%; background: #fff;
+}
+.volume input::-moz-range-track { height: 4px; border-radius: 3px; background: rgba(255, 255, 255, .3); }
+.volume input::-moz-range-progress { height: 4px; border-radius: 3px; background: #fff; }
+.volume input::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+@media (pointer: coarse) { .volume input { display: none; } }
+
+.speed { position: relative; }
+.speed .ctl { width: auto; min-width: 40px; padding: 0 9px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.menu {
+  position: absolute; bottom: 46px; right: 0; display: none; flex-direction: column;
+  min-width: 92px; padding: 5px; border-radius: 11px;
+  background: rgba(16, 9, 30, .96); border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+}
+.menu.is-open { display: flex; }
+.menu button {
+  display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 7px;
+  font-size: 13px; text-align: left; white-space: nowrap;
+}
+.menu button:hover { background: var(--surface-hover); }
+.menu button::before { content: ""; width: 13px; height: 13px; flex: none; }
+.menu button[aria-checked="true"]::before {
+  background: var(--accent); border-radius: 50%; box-shadow: inset 0 0 0 3px rgba(16, 9, 30, .96);
+}
+@media (max-width: 480px) { .row .ctl { width: 34px; height: 34px; } .clock { padding: 0 4px; font-size: 12px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation-duration: .01ms !important; } }
+`;
+
+/** Runs on the viewer page. Deliberately free of template literals: it is embedded in one below. */
+const VIEWER_JS = `
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const player = $("player"), video = $("video"), scrub = $("scrub");
+  const played = $("played"), buffered = $("buffered"), knob = $("knob"), bubble = $("bubble");
+  const now = $("now"), total = $("total"), volume = $("volume"), speedButton = $("speed"), speedMenu = $("speed-menu");
+  const SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2];
+
+  const remember = (key, value) => { try { localStorage.setItem("ketto.viewer." + key, String(value)); } catch (error) { /* private mode */ } };
+  const recall = (key) => { try { return localStorage.getItem("ketto.viewer." + key); } catch (error) { return null; } };
+
+  const clock = (seconds) => {
+    const whole = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+    const pad = (value) => (value < 10 ? "0" : "") + value;
+    const hours = Math.floor(whole / 3600), minutes = Math.floor(whole / 60) % 60;
+    return (hours > 0 ? hours + ":" + pad(minutes) : String(minutes)) + ":" + pad(whole % 60);
+  };
+
+  // Playback -------------------------------------------------------------
+  const toggle = () => { if (video.paused) video.play().catch(() => {}); else video.pause(); };
+  const seekBy = (delta) => { video.currentTime = Math.min(Math.max(video.currentTime + delta, 0), video.duration || 0); wake(); };
+
+  video.addEventListener("play", () => { player.classList.add("is-playing", "is-started"); wake(); });
+  video.addEventListener("pause", () => { player.classList.remove("is-playing"); wake(); });
+  video.addEventListener("waiting", () => player.classList.add("is-waiting"));
+  video.addEventListener("playing", () => player.classList.remove("is-waiting"));
+  video.addEventListener("canplay", () => player.classList.remove("is-waiting"));
+  video.addEventListener("ended", () => player.classList.remove("is-started", "is-playing"));
+  video.addEventListener("error", () => player.classList.add("is-broken"));
+  const stage = document.querySelector(".stage");
+  const fit = () => {
+    // clientWidth/clientHeight include the padding, and the video has to fit inside it.
+    const pad = getComputedStyle(stage);
+    const wide = stage.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+    const tall = stage.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
+    if (wide > 0) document.documentElement.style.setProperty("--wide", wide + "px");
+    if (tall > 0) document.documentElement.style.setProperty("--fit", tall + "px");
+  };
+  addEventListener("resize", fit);
+  fit();
+
+  video.addEventListener("loadedmetadata", () => {
+    if (video.videoWidth && video.videoHeight) {
+      document.documentElement.style.setProperty("--arn", String(video.videoWidth / video.videoHeight));
+    }
+    total.textContent = clock(video.duration);
+    paint();
+  });
+
+  $("poster").addEventListener("click", toggle);
+  $("play").addEventListener("click", toggle);
+  video.addEventListener("click", toggle);
+  video.addEventListener("dblclick", () => fullscreen());
+
+  // Progress -------------------------------------------------------------
+  const percent = (value) => (Math.min(Math.max(value, 0), 1) * 100).toFixed(3) + "%";
+
+  const paint = () => {
+    const duration = video.duration;
+    const fraction = Number.isFinite(duration) && duration > 0 ? video.currentTime / duration : 0;
+    played.style.width = percent(fraction);
+    knob.style.left = percent(fraction);
+    now.textContent = clock(video.currentTime);
+    scrub.setAttribute("aria-valuenow", String(Math.round(video.currentTime)));
+    scrub.setAttribute("aria-valuemax", String(Math.round(Number.isFinite(duration) ? duration : 0)));
+    scrub.setAttribute("aria-valuetext", clock(video.currentTime) + " of " + clock(duration));
+    let ahead = 0;
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= video.currentTime + 0.5 && video.buffered.end(i) > ahead) ahead = video.buffered.end(i);
+    }
+    buffered.style.width = Number.isFinite(duration) && duration > 0 ? percent(ahead / duration) : "0%";
+  };
+
+  video.addEventListener("timeupdate", paint);
+  video.addEventListener("progress", paint);
+  video.addEventListener("seeking", () => player.classList.add("is-waiting"));
+  video.addEventListener("seeked", paint);
+
+  const positionOf = (event) => {
+    const box = scrub.getBoundingClientRect();
+    return box.width > 0 ? Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1) : 0;
+  };
+
+  const hover = (event) => {
+    const at = positionOf(event);
+    const box = scrub.getBoundingClientRect();
+    bubble.textContent = clock(at * (video.duration || 0));
+    bubble.style.left = Math.min(Math.max(at * box.width, 26), box.width - 26) + "px";
+  };
+
+  scrub.addEventListener("pointermove", hover);
+  scrub.addEventListener("pointerdown", (event) => {
+    if (!Number.isFinite(video.duration)) return;
+    event.preventDefault();
+    scrub.setPointerCapture(event.pointerId);
+    player.classList.add("is-scrubbing");
+    const scrubTo = (at) => { video.currentTime = at * video.duration; paint(); };
+    scrubTo(positionOf(event));
+    const move = (moved) => scrubTo(positionOf(moved));
+    const done = () => {
+      scrub.removeEventListener("pointermove", move);
+      player.classList.remove("is-scrubbing");
+      wake();
+    };
+    scrub.addEventListener("pointermove", move);
+    scrub.addEventListener("pointerup", done, { once: true });
+    scrub.addEventListener("pointercancel", done, { once: true });
+  });
+
+  // Volume ---------------------------------------------------------------
+  const applyVolume = () => {
+    player.classList.toggle("is-muted", video.muted || video.volume === 0);
+    volume.value = String(video.muted ? 0 : video.volume);
+    volume.style.setProperty("--fill", Math.round((video.muted ? 0 : video.volume) * 100) + "%");
+  };
+
+  volume.addEventListener("input", () => {
+    video.volume = Number(volume.value);
+    video.muted = video.volume === 0;
+    remember("volume", video.volume);
+  });
+  $("mute").addEventListener("click", () => { video.muted = !video.muted; wake(); });
+  video.addEventListener("volumechange", applyVolume);
+
+  const savedVolume = Number(recall("volume"));
+  if (Number.isFinite(savedVolume) && savedVolume > 0 && savedVolume <= 1) video.volume = savedVolume;
+  applyVolume();
+
+  // Speed ----------------------------------------------------------------
+  const applySpeed = (rate) => {
+    video.playbackRate = rate;
+    speedButton.dataset.rate = String(rate);
+    speedButton.textContent = rate + "\\u00d7";
+    speedButton.setAttribute("aria-label", "Playback speed, " + rate + " times");
+    for (const option of speedMenu.children) option.setAttribute("aria-checked", String(Number(option.dataset.speed) === rate));
+    remember("speed", rate);
+  };
+
+  for (const rate of SPEEDS) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.setAttribute("role", "menuitemradio");
+    option.dataset.speed = String(rate);
+    option.textContent = rate === 1 ? "Normal" : rate + "\\u00d7";
+    option.addEventListener("click", () => { applySpeed(rate); closeMenu(); });
+    speedMenu.appendChild(option);
+  }
+
+  const closeMenu = () => { speedMenu.classList.remove("is-open"); speedButton.setAttribute("aria-expanded", "false"); };
+  speedButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = speedMenu.classList.toggle("is-open");
+    speedButton.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", closeMenu);
+  video.addEventListener("ratechange", () => { if (video.playbackRate !== Number(speedButton.dataset.rate)) applySpeed(video.playbackRate); });
+
+  const nudgeSpeed = (step) => {
+    const index = SPEEDS.indexOf(video.playbackRate);
+    const from = index === -1 ? SPEEDS.indexOf(1) : index;
+    applySpeed(SPEEDS[Math.min(Math.max(from + step, 0), SPEEDS.length - 1)]);
+  };
+
+  const savedSpeed = Number(recall("speed"));
+  applySpeed(SPEEDS.includes(savedSpeed) ? savedSpeed : 1);
+
+  // Fullscreen and picture in picture -------------------------------------
+  const fullscreen = () => {
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    if (player.requestFullscreen) player.requestFullscreen().catch(() => {});
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); // iPhone: video only
+  };
+  $("fullscreen").addEventListener("click", fullscreen);
+  document.addEventListener("fullscreenchange", () => {
+    player.classList.toggle("is-full", Boolean(document.fullscreenElement));
+    fit();
+    wake();
+  });
+
+  const pip = $("pip");
+  if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+    pip.addEventListener("click", () => {
+      if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+      else video.requestPictureInPicture().catch(() => {});
+    });
+  } else {
+    pip.remove();
+  }
+
+  // Idle -------------------------------------------------------------------
+  let idleTimer = 0;
+  const wake = () => {
+    player.classList.remove("is-idle");
+    clearTimeout(idleTimer);
+    if (!video.paused) idleTimer = setTimeout(() => player.classList.add("is-idle"), 2600);
+  };
+  for (const event of ["pointermove", "pointerdown", "focusin"]) player.addEventListener(event, wake);
+  player.addEventListener("pointerleave", () => { if (!video.paused) player.classList.add("is-idle"); });
+
+  // Keyboard ---------------------------------------------------------------
+  document.addEventListener("keydown", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target, key = event.key;
+    if (target instanceof Element) {
+      // Typing and links keep their keys; a focused control keeps only Space, which activates it.
+      if (target.closest("input, textarea, select, a, [contenteditable]")) return;
+      if (key === " " && target.closest("button")) return;
+    }
+    const jump = (fraction) => { if (Number.isFinite(video.duration)) video.currentTime = video.duration * fraction; };
+    if (key === " " || key === "k") toggle();
+    else if (key === "ArrowRight") seekBy(5);
+    else if (key === "ArrowLeft") seekBy(-5);
+    else if (key === "l") seekBy(10);
+    else if (key === "j") seekBy(-10);
+    else if (key === "ArrowUp") { video.muted = false; video.volume = Math.min(video.volume + 0.1, 1); remember("volume", video.volume); }
+    else if (key === "ArrowDown") { video.volume = Math.max(video.volume - 0.1, 0); remember("volume", video.volume); }
+    else if (key === "m") video.muted = !video.muted;
+    else if (key === "f") fullscreen();
+    else if (key === ">" || key === ".") nudgeSpeed(1);
+    else if (key === "<" || key === ",") nudgeSpeed(-1);
+    else if (key === "Home") jump(0);
+    else if (key === "End") jump(0.999);
+    else if (key >= "0" && key <= "9") jump(Number(key) / 10);
+    else return;
+    event.preventDefault();
+    wake();
+  });
+
+  // Expiry -----------------------------------------------------------------
+  const expiry = $("expiry");
+  const expires = Date.parse(player.dataset.expires || "");
+  if (Number.isFinite(expires)) {
+    const hours = Math.round((expires - Date.now()) / 3600000);
+    const plural = (count, unit) => count + " " + unit + (count === 1 ? "" : "s");
+    expiry.textContent = hours <= 0 ? "Link has expired"
+      : hours < 24 ? "Link expires in " + plural(hours, "hour")
+      : "Link expires in about " + plural(Math.round(hours / 24), "day");
+  }
+
+  paint();
+})();
+`;
+
+/** Material-style glyphs, all on a 24x24 grid and drawn in `currentColor`. */
+const ICONS = {
+  play: "M8 5v14l11-7z",
+  pause: "M6 5h4v14H6zm8 0h4v14h-4z",
+  volume: "M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.48 4.48 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z",
+  muted: "M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12a9 9 0 0 0-7-8.77v2.06A7 7 0 0 1 19 12zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.9 8.9 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z",
+  expand: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
+  shrink: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z",
+  pip: "M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z",
+  download: "M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z",
+};
+
+const icon = (name, extra = "") =>
+  `<svg viewBox="0 0 24 24" aria-hidden="true"${extra ? ` class="${extra}"` : ""}><path d="${ICONS[name]}"/></svg>`;
+
+function escapeHTML(text) {
+  return String(text).replace(/[&<>"']/g, (character) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]
+  );
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["kB", "MB", "GB"];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+/**
+ * `GET /v/:id` — the page a share link opens. One page for every video: it is rendered here per request from
+ * the object's metadata, nothing about it is stored in the bucket, and it streams the file from `/f/:id`, so
+ * the player can change for every existing link by redeploying this Worker.
+ */
+async function viewerPage({ request, env, url }, id) {
+  const head = await env.VIDEOS.head(keyFor(id));
+  if (!head) return notFoundPage();
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const headers = new Headers({
+    "Content-Type": "text/html; charset=utf-8",
+    // The page carries no third-party anything; its own style and script are the only exceptions.
+    "Content-Security-Policy": [
+      "default-src 'none'",
+      "media-src 'self'",
+      "img-src 'self' data:",
+      `style-src 'nonce-${nonce}'`,
+      `script-src 'nonce-${nonce}'`,
+      "base-uri 'none'",
+      "form-action 'none'",
+    ].join("; "),
+    // Rendered from live metadata, so a deleted video stops playing rather than lingering in a cache. The
+    // bytes behind /f are what benefits from caching, and they are cached for an hour.
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+  });
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(viewerHTML(describe(head, url.origin), url.origin, nonce), { status: 200, headers });
+}
+
+function viewerHTML(video, origin, nonce) {
+  const title = escapeHTML(video.title);
+  const file = `/f/${video.id}`;
+  const description = `A screen recording shared with Ketto${video.size ? ` · ${formatBytes(video.size)}` : ""}.`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${title} · Ketto</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0c0715">
+<meta name="description" content="${escapeHTML(description)}">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}">
+<meta property="og:type" content="video.other">
+<meta property="og:site_name" content="Ketto">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${escapeHTML(description)}">
+<meta property="og:url" content="${escapeHTML(video.url)}">
+<meta property="og:video" content="${escapeHTML(origin + file)}">
+<meta property="og:video:type" content="video/mp4">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${title}">
+<style nonce="${nonce}">${VIEWER_CSS}</style>
+</head>
+<body>
+<header class="top">
+  <span class="logo">${LOGO_SVG}</span>
+  <div class="heading">
+    <h1>${title}</h1>
+    <div class="meta">${escapeHTML(formatBytes(video.size))} <span id="expiry"></span></div>
+  </div>
+  <a class="download" href="${file}?download=1" download>${icon("download")}<span>Download</span></a>
+</header>
+<main class="stage">
+  <div class="player" id="player" data-expires="${escapeHTML(video.expires)}">
+    <video id="video" src="${file}" preload="metadata" playsinline webkit-playsinline></video>
+    <button class="poster" id="poster" type="button" aria-label="Play"><i>${icon("play")}</i></button>
+    <div class="spinner"></div>
+    <div class="error"><p>This video could not be played.<br>The link may have expired.</p></div>
+    <div class="scrim"></div>
+    <div class="controls" id="controls">
+      <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Seek"
+           aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+        <div class="track">
+          <div class="buffered" id="buffered"></div>
+          <div class="played" id="played"></div>
+          <div class="knob" id="knob"></div>
+        </div>
+        <div class="bubble" id="bubble">0:00</div>
+      </div>
+      <div class="row">
+        <button class="ctl play" id="play" type="button" aria-label="Play or pause">
+          ${icon("play", "play-icon")}${icon("pause", "pause")}
+        </button>
+        <div class="volume">
+          <button class="ctl" id="mute" type="button" aria-label="Mute">
+            ${icon("volume", "volume-icon")}${icon("muted", "unmute")}
+          </button>
+          <input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+        </div>
+        <span class="clock"><span id="now">0:00</span> <span class="total">/ <span id="total">0:00</span></span></span>
+        <span class="spacer"></span>
+        <div class="speed">
+          <button class="ctl" id="speed" type="button" aria-haspopup="true" aria-expanded="false"
+                  aria-label="Playback speed">1×</button>
+          <div class="menu" id="speed-menu" role="menu"></div>
+        </div>
+        <button class="ctl" id="pip" type="button" aria-label="Picture in picture">${icon("pip")}</button>
+        <button class="ctl" id="fullscreen" type="button" aria-label="Full screen">
+          ${icon("expand", "expand")}${icon("shrink", "shrink")}
+        </button>
+      </div>
+    </div>
+  </div>
+</main>
+<script nonce="${nonce}">${VIEWER_JS}</script>
+</body>
+</html>
+`;
 }
 
 // MARK: - Helpers

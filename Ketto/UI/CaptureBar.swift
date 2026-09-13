@@ -167,6 +167,14 @@ private struct CaptureBarContent: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             settings.refreshDisplays()
         }
+        // The floating camera bubble follows the camera toggle, the chosen camera, the display it will be
+        // recorded on, and its size.
+        .onChange(of: settings.recordCamera) { _, _ in model.syncCameraBubble() }
+        .onChange(of: settings.cameraID) { _, _ in model.syncCameraBubble() }
+        .onChange(of: settings.mode) { _, _ in model.syncCameraBubble() }
+        .onChange(of: settings.displayID) { _, _ in model.syncCameraBubble() }
+        .onChange(of: settings.windowID) { _, _ in model.syncCameraBubble() }
+        .onChange(of: settings.cameraBubbleSize) { _, _ in model.syncCameraBubble() }
     }
 
     private var barDivider: some View {
@@ -305,10 +313,17 @@ private struct CaptureBarContent: View {
                 offSymbol: "video.slash.fill",
                 isOn: $settings.recordCamera,
                 isAvailable: !settings.cameras.isEmpty,
-                help: settings.cameras.isEmpty
-                    ? "No camera found"
-                    : "Camera · \(settings.selectedCamera?.name ?? "")"
+                help: cameraHelp
             )
+            .overlay(alignment: .topTrailing) {
+                if settings.recordCamera && cameraDenied {
+                    Circle()
+                        .fill(.orange)
+                        .frame(width: 7, height: 7)
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 1))
+                        .offset(x: -2, y: 2)
+                }
+            }
             DeviceMenu(help: "Choose the camera") {
                 Picker("Camera", selection: $settings.cameraID) {
                     ForEach(settings.cameras) { device in
@@ -316,6 +331,10 @@ private struct CaptureBarContent: View {
                     }
                 }
                 .pickerStyle(.inline)
+                if cameraDenied {
+                    Divider()
+                    Button("Open Camera Settings…") { CapturePermissions.openCameraSettings() }
+                }
             }
             .disabled(settings.cameras.isEmpty)
         }
@@ -353,6 +372,19 @@ private struct CaptureBarContent: View {
                 }
             }
         }
+    }
+
+    private var cameraDenied: Bool {
+        settings.cameraStatus == .denied || settings.cameraStatus == .restricted
+    }
+
+    private var cameraHelp: String {
+        if settings.cameras.isEmpty { return "No camera found" }
+        guard settings.recordCamera else { return "The camera is not recorded" }
+        if cameraDenied {
+            return "Camera access was denied, so the recording will not include the camera. Enable Ketto under System Settings › Privacy & Security › Camera."
+        }
+        return "Camera · \(settings.selectedCamera?.name ?? ""). The floating bubble shows what is recorded; drag it wherever it is least in the way."
     }
 
     private var keyboardHelp: String {

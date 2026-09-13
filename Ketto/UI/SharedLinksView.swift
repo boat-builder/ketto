@@ -54,7 +54,7 @@ struct SharedLinksView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Share links aren’t set up", systemImage: "link.badge.plus")
                 .font(.headline)
-            Text("Ketto shares videos through your own Cloudflare account: a private bucket that deletes videos after about three days, and a small Worker that serves the links on a domain you own. Setting it up takes one command in Terminal.")
+            Text("Ketto shares videos through your own Cloudflare account: a private bucket that deletes videos after about three days, and a small Worker that serves the links on a domain you own. Ketto writes the setup files and gives you a prompt for your coding agent, which does the rest with wrangler.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

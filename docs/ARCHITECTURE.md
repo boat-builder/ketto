@@ -299,6 +299,19 @@ Worth knowing before touching any of it:
   The page renders itself `no-store`: it is built from live metadata, so a deleted video
   must stop playing rather than linger in a cache. The bytes behind `/f` are what is worth
   caching and keep their hour.
+- The landing page is `GET /`, which answers two callers from one route: `Accept: text/html`
+  gets `Resources/CloudflareBackend/index.html`, everything else — the app, the `curl -s
+  https://<domain>/` step 7 of the setup prompt verifies with — keeps the
+  `{ service, api }` handshake. Unlike the viewer it is a file, not a template: `wrangler.json`
+  carries a `Text` bundling rule so `import LANDING_PAGE from "./index.html"` pulls it into the
+  Worker at deploy time, which keeps the deploy one `wrangler deploy` of one entry point and
+  keeps the page a file that opens in a browser and can be hosted anywhere. It has no script and
+  no third-party anything, so its CSP is `default-src 'none'` plus `data:` images; the one thing
+  it needs is its own style element, and `landingStyleHash` hashes that element's text — the
+  newlines around it included, which is what a browser hashes — instead of loosening the policy.
+  Keep the page's styling in that element: a `style=""` attribute would need `'unsafe-hashes'`
+  as well. `ShareSetupBundle.bundledFiles` writes `index.html` into the setup folder next to
+  `worker.js`, and `wrangler deploy` fails without it.
 - Player behaviour worth knowing: speed and volume persist per browser in `localStorage`
   (wrapped in try/catch — private mode throws); `--ar` is set from `videoWidth/videoHeight`
   on `loadedmetadata` so the box stops being 16:9 for a vertical recording, with
@@ -310,8 +323,8 @@ Worth knowing before touching any of it:
 - Updating a deployed Worker: `ShareSetupBundle.write()` runs only from the disconnected
   setup flow, and `secret.txt` is deleted once the app connects, so a Ketto update does not
   reach a backend that is already live. Until there is an in-app path, the folder's
-  `worker.js` has to be replaced from the app bundle and `wrangler deploy` re-run (the
-  secret is already in the Worker), or the user disconnects and sets up again — same
+  `worker.js` and `index.html` have to be replaced from the app bundle and `wrangler deploy`
+  re-run (the secret is already in the Worker), or the user disconnects and sets up again — same
   bucket, so shared videos survive, but a new token.
 - Invariants: the bucket is never public; the token exists only in the Worker secret, the
   Keychain, and `secret.txt` for the minutes between copying the prompt and the Worker
@@ -412,7 +425,7 @@ annotations in system frameworks rather than defects here, and all three are del
 - Hand-written `Ketto.xcodeproj` using Xcode 16+ synchronized folder groups: every
   file under `Ketto/` and `KettoTests/` is picked up automatically. `Info.plist`
   and the entitlements file are membership exceptions. Non-source files such as
-  `Resources/CloudflareBackend/worker.js` and `setup.sh` are copied flat into
+  `Resources/CloudflareBackend/worker.js`, `index.html` and `setup.sh` are copied flat into
   `Contents/Resources`, which is where `ShareSetupBundle.resourceURL` looks first.
   `WorkerTests/` sits outside `Ketto/` on purpose: Xcode would otherwise try to bundle
   its `node_modules`.

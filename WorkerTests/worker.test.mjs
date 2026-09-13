@@ -7,6 +7,9 @@ const TOKEN = "test-token-0123456789abcdef";
 const ORIGIN = "https://share.example.test";
 const MIB = 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// What a browser sends, and the download the landing page has to keep pointing at.
+const BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+const DMG_URL = "https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg";
 
 function api(path, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -55,6 +58,48 @@ describe("ketto-share worker", () => {
     const response = await SELF.fetch(`${ORIGIN}/`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ service: "ketto-share", api: 1 });
+  });
+
+  it("serves the landing page to a browser and the handshake to everything else", async () => {
+    const page = await SELF.fetch(`${ORIGIN}/`, { headers: { Accept: BROWSER_ACCEPT } });
+    expect(page.status).toBe(200);
+    expect(page.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    const html = await page.text();
+    expect(html).toContain("<title>");
+    expect(html).toContain(DMG_URL);
+
+    // curl's wildcard, and the Accept the app's client sets, both keep the JSON.
+    for (const accept of ["*/*", "application/json"]) {
+      const handshake = await SELF.fetch(`${ORIGIN}/`, { headers: { Accept: accept } });
+      expect(await handshake.json()).toEqual({ service: "ketto-share", api: 1 });
+    }
+
+    const head = await SELF.fetch(`${ORIGIN}/`, { method: "HEAD", headers: { Accept: BROWSER_ACCEPT } });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+  });
+
+  it("names its own style block in the landing page's policy, and allows nothing else", async () => {
+    const response = await SELF.fetch(`${ORIGIN}/`, { headers: { Accept: BROWSER_ACCEPT } });
+    const html = await response.text();
+    const policy = response.headers.get("Content-Security-Policy");
+
+    // The page has to be styleable under its own policy. Taken the way a browser takes it —
+    // every character between the tags — rather than by the Worker's own regex, so a policy
+    // that names some trimmed variant of the style element fails here instead of in a browser.
+    const open = html.indexOf("<style>") + "<style>".length;
+    const close = html.indexOf("</style>");
+    expect(open).toBeGreaterThan("<style>".length - 1);
+    expect(close).toBeGreaterThan(open);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(html.slice(open, close)));
+    const hash = `sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}`;
+    expect(policy).toContain(`style-src '${hash}'`);
+
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).not.toContain("unsafe-inline");
+    // Nothing to execute and nothing to fetch: no script tag, and no absolute asset reference.
+    expect(html).not.toMatch(/<script/i);
+    expect(html).not.toMatch(/(src|href)="https?:\/\/(?!github\.com)/);
   });
 
   it("rejects api calls without the right token", async () => {

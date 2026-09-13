@@ -37,7 +37,8 @@ almost every task needs one slice of it, not the whole thing.
 | [docs/SPEC.md](docs/SPEC.md) | ~530 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~345 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, sharing, expected build warnings | Touching existing engine, render, playback, capture, export or sharing code |
 | [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
-| `Ketto/Resources/CloudflareBackend/worker.js` | ~970 | The sharing backend the app deploys to the user's Cloudflare account, including the viewer page share links open; its header is the HTTP contract | Touching sharing, on either side |
+| `Ketto/Resources/CloudflareBackend/worker.js` | ~1020 | The sharing backend the app deploys to the user's Cloudflare account, including the viewer page share links open; its header is the HTTP contract | Touching sharing, on either side |
+| `Ketto/Resources/CloudflareBackend/index.html` | ~350 | The landing page that same Worker serves at the root of the domain — one self-contained file, hostable anywhere | Changing what Ketto's front page says |
 
 ### Picking one section out of the spec
 
@@ -162,6 +163,11 @@ the frame under the playhead as an image.
 the video as MP4 (the only format the backend serves) and uploads it to a private Cloudflare R2 bucket on your own account, then copies
 a link like `https://share.example.com/v/…` that works for about three days; a finished
 MP4 export offers the same with Share….
+
+The domain's own root serves Ketto's landing page, so someone who was sent a link can find
+out what made it; `curl` and the app still get the JSON handshake there. It is one
+self-contained `index.html` next to the Worker, bundled into it at deploy time, and hosting
+it anywhere else is a matter of copying that one file.
 
 The link opens a player page rather than the bare file: play/pause, a scrubber with buffered
 range and hover preview, 0.5× to 2× speed, volume, picture in picture, full screen, a download

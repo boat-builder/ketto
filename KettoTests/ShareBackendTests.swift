@@ -122,7 +122,7 @@ final class ShareSetupBundleTests: XCTestCase {
         XCTAssertEqual(config.routes, [WranglerConfig.Route(pattern: "share.example.com", customDomain: true)])
         XCTAssertFalse(config.workersDev)
         XCTAssertEqual(config.main, "worker.js")
-        XCTAssertEqual(config.rules, [WranglerConfig.Rule(type: "Text", globs: ["**/*.html"])], "wrangler bundles index.html into the Worker as text")
+        XCTAssertEqual(config.rules, [WranglerConfig.Rule(type: "Text", globs: ["**/*.html"], fallsThrough: false)], "wrangler bundles index.html into the Worker as text")
         XCTAssertEqual(config.r2Buckets, [WranglerConfig.R2Bucket(binding: "VIDEOS", bucketName: "ketto-videos")])
         XCTAssertEqual(config.vars["BUCKET_NAME"], "ketto-videos")
 

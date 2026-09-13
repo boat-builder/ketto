@@ -15,10 +15,18 @@ struct WranglerConfig: Codable, Equatable, Sendable {
     }
 
     /// A bundling rule. The one Ketto needs pulls `index.html` in next to `worker.js` as a text module, so the
-    /// landing page stays a file anyone can open and the deploy stays one entry point.
+    /// landing page stays a file anyone can open and the deploy stays one entry point. Spelling it out repeats a
+    /// rule wrangler already applies to `.html`, which it warns about unless `fallthrough` says which of the two
+    /// wins; `false` keeps this one and keeps `wrangler deploy` quiet during the setup.
     struct Rule: Codable, Equatable, Sendable {
         var type: String
         var globs: [String]
+        var fallsThrough: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case type, globs
+            case fallsThrough = "fallthrough"
+        }
     }
 
     struct R2Bucket: Codable, Equatable, Sendable {
@@ -55,7 +63,7 @@ struct WranglerConfig: Codable, Equatable, Sendable {
             workersDev: false,
             vars: ["BUCKET_NAME": bucket],
             routes: [Route(pattern: domain, customDomain: true)],
-            rules: [Rule(type: "Text", globs: ["**/*.html"])],
+            rules: [Rule(type: "Text", globs: ["**/*.html"], fallsThrough: false)],
             r2Buckets: [R2Bucket(binding: "VIDEOS", bucketName: bucket)]
         )
     }

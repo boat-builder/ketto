@@ -245,7 +245,38 @@ Worth knowing before touching any of it:
 - Range requests: R2 fills in `object.range` even for a plain GET and quietly serves the
   whole object for a range it cannot satisfy, so the Worker parses the `Range` header
   itself to decide between 200, 206 and 416, and trusts `object.range` only for the
-  `Content-Range` numbers.
+  `Content-Range` numbers. `/f/:id?download=1` swaps the `Content-Disposition` to
+  `attachment`; everything else about the response is the same.
+- The viewer is `GET /v/:id` — the address every share link points at. `viewerPage` reads
+  the object's metadata (a `head`, no body) and renders the page from it, so there is one
+  player for every video, nothing viewer-shaped is stored in the bucket, and redeploying
+  the Worker re-skins links that already exist. The page streams from `/f/:id`, which is
+  why the split exists: `/v` can change shape freely while `/f` stays a plain file.
+  `VIEWER_CSS` and `VIEWER_JS` are inlined into it and carry a per-request nonce that the
+  `Content-Security-Policy` names, so the page needs neither `unsafe-inline` nor any
+  third-party origin — it loads no CDN, font or analytics, and `default-src 'none'` blocks
+  the rest. `VIEWER_JS` deliberately uses no template literals, because it is embedded in
+  one; a `\` inside either constant has to be doubled (a bare `\00b7` in the CSS is a
+  legacy octal escape and the bundler rejects the file).
+  The title is user-controlled and reaches the page through `escapeHTML` everywhere,
+  including the link-preview metadata; `WorkerTests` pins that.
+  The page renders itself `no-store`: it is built from live metadata, so a deleted video
+  must stop playing rather than linger in a cache. The bytes behind `/f` are what is worth
+  caching and keep their hour.
+- Player behaviour worth knowing: speed and volume persist per browser in `localStorage`
+  (wrapped in try/catch — private mode throws); `--ar` is set from `videoWidth/videoHeight`
+  on `loadedmetadata` so the box stops being 16:9 for a vertical recording, with
+  `object-fit: contain` as the backstop; controls hide after 2.6 s of stillness only while
+  playing; `ended` drops `is-started` so the centre button returns as a replay; the
+  picture-in-picture button removes itself where the browser has no PiP, and full screen
+  falls back to `webkitEnterFullscreen` on the video for iPhone, which has no element
+  full screen.
+- Updating a deployed Worker: `ShareSetupBundle.write()` runs only from the disconnected
+  setup flow, and `secret.txt` is deleted once the app connects, so a Ketto update does not
+  reach a backend that is already live. Until there is an in-app path, the folder's
+  `worker.js` has to be replaced from the app bundle and `wrangler deploy` re-run (the
+  secret is already in the Worker), or the user disconnects and sets up again — same
+  bucket, so shared videos survive, but a new token.
 - Invariants: the bucket is never public; the token exists only in the Worker secret, the
   Keychain, and `secret.txt` for the minutes between copying the prompt and the Worker
   answering — never in the prompt itself, which would put it on the clipboard and in the

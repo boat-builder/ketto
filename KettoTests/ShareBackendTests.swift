@@ -122,6 +122,7 @@ final class ShareSetupBundleTests: XCTestCase {
         XCTAssertEqual(config.routes, [WranglerConfig.Route(pattern: "share.example.com", customDomain: true)])
         XCTAssertFalse(config.workersDev)
         XCTAssertEqual(config.main, "worker.js")
+        XCTAssertEqual(config.rules, [WranglerConfig.Rule(type: "Text", globs: ["**/*.html"])], "wrangler bundles index.html into the Worker as text")
         XCTAssertEqual(config.r2Buckets, [WranglerConfig.R2Bucket(binding: "VIDEOS", bucketName: "ketto-videos")])
         XCTAssertEqual(config.vars["BUCKET_NAME"], "ketto-videos")
 
@@ -136,6 +137,9 @@ final class ShareSetupBundleTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: bundle.scriptURL, encoding: .utf8).hasPrefix("#!/bin/bash"))
         let worker = try String(contentsOf: directory.appendingPathComponent("worker.js"), encoding: .utf8)
         XCTAssertTrue(worker.contains("const API_VERSION = \(ShareBackendClient.apiVersion);"))
+        let landing = try String(contentsOf: directory.appendingPathComponent("index.html"), encoding: .utf8)
+        XCTAssertTrue(landing.hasPrefix("<!doctype html>"))
+        XCTAssertTrue(landing.contains("releases/latest/download/Ketto-macos.dmg"), "the download button points at the release alias")
 
         XCTAssertEqual(ShareSetupBundle.pending(in: directory), bundle)
         bundle.removeSecret()

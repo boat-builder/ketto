@@ -1,0 +1,376 @@
+<!doctype html>
+<!--
+  Ketto's landing page: what a browser gets at the root of a domain running the sharing
+  backend, and a file that stands on its own anywhere else it is hosted.
+
+  One viewport, no scrolling: the shell is a 100dvh column, and every type size is capped
+  against vh as well as vw so a short window shrinks the page instead of pushing it past the
+  fold. The illustration is dropped below 880px, where the two columns would stack and there
+  is no longer room for it.
+
+  Self-contained on purpose — one file, no script, no font, no image, no CDN — so the Worker
+  can serve it under the same locked-down Content-Security-Policy as the viewer page. All of
+  the styling lives in the one style element below, whose SHA-256 the Worker computes and
+  names in that policy; keep it out of per-element style attributes or the policy has to
+  loosen. The download link is the version-less alias the release workflow publishes
+  (.github/workflows/release.yml), so it never needs updating for a new version.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ketto — beautiful screen recordings, ready to share</title>
+<meta name="description" content="Ketto records your Mac and does the editing itself: smooth cursor motion, zooms timed to the action, attractive framing. One click turns it into a link that plays in any browser, on your own domain.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfafc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0715" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='40' y='40' width='944' height='944' rx='224' fill='%232D126B'/%3E%3Ccircle cx='512' cy='512' r='264' fill='none' stroke='%23FF625F' stroke-width='112' stroke-linecap='round' stroke-dasharray='1393 266' transform='rotate(-29 512 512)'/%3E%3Ccircle cx='512' cy='512' r='92' fill='%23FF625F'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ketto">
+<meta property="og:title" content="Ketto — beautiful screen recordings, ready to share">
+<meta property="og:description" content="Ketto records your Mac and does the editing itself: smooth cursor motion, zooms timed to the action, attractive framing. One click turns it into a link that plays in any browser, on your own domain.">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg: #fbfafc;
+  --ink: #17111f;
+  --muted: #6d6579;
+  --faint: #8d879a;
+  --line: rgba(23, 17, 31, .10);
+  --hair: rgba(23, 17, 31, .07);
+  --panel: #ffffff;
+  --stage: #f3f1f6;
+  --stage-edge: rgba(23, 17, 31, .09);
+  --glow: rgba(76, 32, 153, .13);
+  --accent: #ff625f;
+  --accent-ink: #ffffff;
+  --shadow: 0 24px 60px -30px rgba(23, 17, 31, .34), 0 2px 6px -2px rgba(23, 17, 31, .08);
+  --icon-shadow: 0 14px 32px -14px rgba(45, 18, 107, .55);
+  --cta-shadow: 0 12px 28px -10px rgba(255, 98, 95, .70);
+  --pad: clamp(20px, 5vw, 52px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0715;
+    --ink: #f4f1f8;
+    --muted: #a79fba;
+    --faint: #8b83a1;
+    --line: rgba(255, 255, 255, .12);
+    --hair: rgba(255, 255, 255, .08);
+    --panel: rgba(255, 255, 255, .05);
+    --stage: rgba(255, 255, 255, .035);
+    --stage-edge: rgba(255, 255, 255, .10);
+    --glow: rgba(124, 74, 220, .20);
+    --shadow: 0 30px 70px -34px rgba(0, 0, 0, .80);
+    --icon-shadow: 0 16px 38px -14px rgba(0, 0, 0, .70);
+    --cta-shadow: 0 12px 30px -12px rgba(255, 98, 95, .55);
+  }
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+body::before {
+  content: "";
+  position: fixed; inset: -25% -10% auto -10%; height: 85%;
+  background: radial-gradient(46% 58% at 62% 34%, var(--glow) 0%, transparent 70%);
+  pointer-events: none; z-index: -1;
+}
+svg { display: block; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+.shell {
+  flex: 1 1 auto;
+  width: 100%; max-width: 1160px; margin: 0 auto;
+  padding-inline: var(--pad);
+  display: flex; flex-direction: column;
+}
+
+/* Top bar */
+.bar {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding-block: clamp(13px, 2.2vh, 24px);
+}
+.mark { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; font-weight: 590; letter-spacing: -.012em; }
+.mark svg { width: 21px; height: 21px; border-radius: 6px; }
+.bar nav { display: flex; align-items: center; gap: clamp(16px, 3vw, 26px); font-size: 14px; color: var(--muted); }
+.bar nav a { text-decoration: none; transition: color .15s ease; }
+.bar nav a:hover { color: var(--ink); }
+
+/* The one screen */
+.hero {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.04fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(30px, 5vw, 78px);
+  padding-block: clamp(12px, 3.2vh, 50px);
+}
+.appicon {
+  width: clamp(44px, min(4.8vw, 7vh), 64px);
+  height: clamp(44px, min(4.8vw, 7vh), 64px);
+  border-radius: 22%;
+  margin-bottom: clamp(13px, 2.2vh, 24px);
+  filter: drop-shadow(var(--icon-shadow));
+}
+h1 {
+  margin: 0;
+  max-width: 14ch;
+  font-size: clamp(29px, min(4.1vw, 5.9vh), 51px);
+  line-height: 1.06;
+  letter-spacing: -.035em;
+  font-weight: 600;
+}
+.lead {
+  margin: clamp(13px, 2vh, 22px) 0 0;
+  max-width: 33rem;
+  font-size: clamp(15px, min(1.3vw, 2vh), 18px);
+  line-height: 1.55;
+  color: var(--muted);
+  letter-spacing: -.006em;
+}
+.lead em { font-style: normal; color: var(--ink); }
+
+.cta { margin-top: clamp(18px, 3vh, 34px); }
+.get {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 26px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 16px; font-weight: 590; letter-spacing: -.01em; text-decoration: none;
+  box-shadow: var(--cta-shadow);
+  transition: transform .18s ease, filter .18s ease;
+}
+.get svg { width: 17px; height: 17px; fill: currentColor; }
+.get:hover { transform: translateY(-1px); filter: saturate(1.06) brightness(1.03); }
+.get:active { transform: translateY(0); }
+.fine { margin: 13px 0 0; font-size: 13px; color: var(--faint); letter-spacing: -.004em; }
+
+/* The illustration */
+.stage svg { width: 100%; height: auto; border-radius: clamp(12px, 1.6vw, 20px); box-shadow: var(--shadow); }
+.sg-screen { fill: var(--stage); stroke: var(--stage-edge); stroke-width: 2; }
+.sg-wash-a { stop-color: var(--glow); }
+.sg-wash-b { stop-color: transparent; }
+.sg-window { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+.sg-dot { fill: var(--ink); opacity: .18; }
+.sg-line { fill: var(--ink); opacity: .10; }
+.sg-panel { fill: var(--ink); opacity: .055; }
+.sg-chip { fill: var(--accent); opacity: .22; }
+.sg-bracket { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+.sg-track { fill: none; stroke: var(--ink); opacity: .22; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 11; }
+.sg-cursor { fill: #fff; stroke: rgba(12, 7, 21, .55); stroke-width: 1.4; stroke-linejoin: round; }
+.sg-bar { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+.sg-bar-el { fill: var(--ink); opacity: .16; }
+.sg-rec { fill: var(--accent); }
+.sg-link { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+.sg-link-text { fill: var(--ink); opacity: .16; }
+.sg-link-tile { fill: #2d126b; }
+.sg-link-dot { fill: var(--accent); }
+
+/* Three notes and the footer, both on the same line-up at the bottom */
+.notes {
+  flex: none;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(22px, 4vw, 54px);
+  padding-block: clamp(14px, 2.6vh, 28px);
+  border-top: 1px solid var(--hair);
+}
+.note { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); letter-spacing: -.003em; }
+.note::before {
+  content: ""; display: block; width: 22px; height: 2px;
+  margin-bottom: clamp(9px, 1.4vh, 14px);
+  background: var(--accent); border-radius: 2px;
+}
+.note b { color: var(--ink); font-weight: 600; }
+
+footer {
+  flex: none;
+  border-top: 1px solid var(--hair);
+  padding-block: clamp(11px, 1.8vh, 20px) clamp(13px, 2.2vh, 24px);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: 13px; color: var(--faint);
+}
+footer nav { display: flex; flex-wrap: wrap; gap: clamp(14px, 3vw, 24px); }
+footer a { text-decoration: none; transition: color .15s ease; }
+footer a:hover { color: var(--ink); }
+
+/* Narrow: one column, and the illustration gives up its place so the page still ends at the fold. */
+@media (max-width: 880px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .stage { display: none; }
+  h1 { max-width: 17ch; }
+}
+@media (max-width: 620px) {
+  /* A phone has the height but not the width, so the hero gives its breathing room back to the notes. */
+  .hero { padding-block: 12px 16px; }
+  .notes { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .note { line-height: 1.5; }
+  .note::before { display: none; }
+  footer { justify-content: center; text-align: center; }
+  footer span { flex: 1 1 100%; }
+}
+/* A short window — a small phone, or a browser carrying a lot of chrome — gets tighter type
+   rather than a scrollbar. */
+@media (max-height: 700px) {
+  .appicon { margin-bottom: 10px; }
+  .lead { margin-top: 12px; font-size: 14.5px; line-height: 1.5; }
+  .cta { margin-top: 16px; }
+  .get { padding: 12px 22px; font-size: 15px; }
+  .fine { margin-top: 10px; font-size: 12.5px; }
+  .notes { padding-block: 14px; }
+  .note { font-size: 12.5px; line-height: 1.5; }
+}
+
+/* Shorter still — a small phone upright, or any phone on its side — and there is no longer room
+   for the supporting notes as well as the pitch. They step aside the way the illustration does,
+   leaving the headline and the download, which are what the page is for. */
+@media (max-height: 560px), (max-width: 620px) and (max-height: 700px) {
+  .notes { display: none; }
+}
+
+/* A phone on its side: barely any height at all, so the app icon goes and the headline
+   stops being a display size. */
+@media (max-height: 460px) {
+  .appicon { display: none; }
+  h1 { font-size: clamp(21px, min(4.1vw, 7vh), 34px); }
+  .lead { font-size: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="bar">
+    <a class="mark" href="/">
+      <svg viewBox="0 0 1024 1024" aria-hidden="true">
+        <rect x="40" y="40" width="944" height="944" rx="224" fill="#2D126B"/>
+        <circle cx="512" cy="512" r="264" fill="none" stroke="#FF625F" stroke-width="112" stroke-linecap="round" stroke-dasharray="1393 266" transform="rotate(-29 512 512)"/>
+        <circle cx="512" cy="512" r="92" fill="#FF625F"/>
+      </svg>
+      <span>Ketto</span>
+    </a>
+    <nav>
+      <a href="https://github.com/boat-builder/ketto">GitHub</a>
+      <a href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">Download</a>
+    </nav>
+  </header>
+
+  <main class="hero">
+    <section class="pitch">
+      <svg class="appicon" viewBox="0 0 1024 1024" role="img" aria-label="Ketto">
+        <rect x="40" y="40" width="944" height="944" rx="224" fill="#2D126B"/>
+        <circle cx="512" cy="512" r="264" fill="none" stroke="#FF625F" stroke-width="112" stroke-linecap="round" stroke-dasharray="1393 266" transform="rotate(-29 512 512)"/>
+        <circle cx="512" cy="512" r="92" fill="#FF625F"/>
+      </svg>
+
+      <h1>Beautiful screen recordings, shared the moment you stop</h1>
+
+      <p class="lead">
+        Ketto records your Mac and does the editing itself: the cursor glides instead of darting,
+        the picture zooms into whatever you were doing, the framing is chosen for you. One click
+        turns it into a link that plays in any browser — <em>on your own domain</em>.
+      </p>
+
+      <div class="cta">
+        <a class="get" href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+          <span>Download for macOS</span>
+        </a>
+        <p class="fine">macOS 14 or later · Apple silicon and Intel · signed and notarized</p>
+      </div>
+    </section>
+
+    <section class="stage">
+      <svg viewBox="0 0 1200 700" role="img" aria-label="A Mac display: a window with the pointer gliding into the region the recording has zoomed to, Ketto's floating capture bar below it, and the share link it copies.">
+        <defs>
+          <radialGradient id="wash" cx="50%" cy="18%" r="70%">
+            <stop class="sg-wash-a" offset="0%"/>
+            <stop class="sg-wash-b" offset="100%"/>
+          </radialGradient>
+        </defs>
+
+        <rect class="sg-screen" x="1" y="1" width="1198" height="698" rx="26"/>
+        <rect x="1" y="1" width="1198" height="698" rx="26" fill="url(#wash)"/>
+
+        <!-- A window being recorded -->
+        <rect class="sg-window" x="200" y="62" width="800" height="420" rx="20"/>
+        <circle class="sg-dot" cx="232" cy="94" r="6"/>
+        <circle class="sg-dot" cx="254" cy="94" r="6"/>
+        <circle class="sg-dot" cx="276" cy="94" r="6"/>
+        <rect class="sg-line" x="232" y="144" width="412" height="13" rx="6.5"/>
+        <rect class="sg-line" x="232" y="176" width="286" height="13" rx="6.5"/>
+        <rect class="sg-panel" x="232" y="226" width="178" height="226" rx="14"/>
+        <rect class="sg-line" x="452" y="226" width="424" height="13" rx="6.5"/>
+        <rect class="sg-line" x="452" y="258" width="352" height="13" rx="6.5"/>
+        <rect class="sg-line" x="452" y="290" width="396" height="13" rx="6.5"/>
+        <rect class="sg-chip" x="452" y="334" width="150" height="42" rx="12"/>
+        <rect class="sg-line" x="452" y="418" width="300" height="13" rx="6.5"/>
+
+        <!-- Where the zoom lands -->
+        <path class="sg-bracket" d="M430 236 V198 H468"/>
+        <path class="sg-bracket" d="M910 198 H948 V236"/>
+        <path class="sg-bracket" d="M948 416 V454 H910"/>
+        <path class="sg-bracket" d="M468 454 H430 V416"/>
+
+        <!-- The pointer, smoothed -->
+        <path class="sg-track" d="M268 456 C 352 456 372 410 438 390 S 520 364 560 348"/>
+        <g transform="translate(560 348) scale(1.7)">
+          <path class="sg-cursor" d="M0 0 L0 22.5 L5.3 17.4 L8.8 24.6 L12.6 22.8 L9.1 15.7 L16.2 15.4 Z"/>
+        </g>
+
+        <!-- The floating capture bar -->
+        <rect class="sg-bar" x="390" y="530" width="420" height="56" rx="28"/>
+        <rect class="sg-bar-el" x="414" y="547" width="36" height="22" rx="7"/>
+        <rect class="sg-bar-el" x="458" y="547" width="36" height="22" rx="7"/>
+        <rect class="sg-bar-el" x="502" y="547" width="36" height="22" rx="7"/>
+        <rect class="sg-bar-el" x="560" y="542" width="2" height="32" rx="1"/>
+        <circle class="sg-bar-el" cx="590" cy="558" r="10"/>
+        <circle class="sg-bar-el" cx="620" cy="558" r="10"/>
+        <circle class="sg-bar-el" cx="650" cy="558" r="10"/>
+        <circle class="sg-rec" cx="772" cy="558" r="17"/>
+
+        <!-- And the link it hands back -->
+        <rect class="sg-link" x="390" y="612" width="420" height="52" rx="26"/>
+        <rect class="sg-link-tile" x="418" y="627" width="24" height="24" rx="7"/>
+        <circle class="sg-link-dot" cx="430" cy="639" r="5.5"/>
+        <rect class="sg-link-text" x="462" y="632" width="212" height="13" rx="6.5"/>
+      </svg>
+    </section>
+  </main>
+
+  <section class="notes">
+    <p class="note"><b>Zooms that land</b> — Ketto keeps an event track, not just pixels, so the picture moves to whatever you were actually doing.</p>
+    <p class="note"><b>A timeline when you want one</b> — trim, cut, re-speed, camera bubble, masks, keystrokes, 16:9 through 9:16.</p>
+    <p class="note"><b>Links you own</b> — share links come off your own domain and your own private Cloudflare bucket, and expire on their own.</p>
+  </section>
+
+  <footer>
+    <span>Ketto — a screen recorder for macOS.</span>
+    <nav>
+      <a href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">Download</a>
+      <a href="https://github.com/boat-builder/ketto/releases">Releases</a>
+      <a href="https://github.com/boat-builder/ketto">GitHub</a>
+    </nav>
+  </footer>
+
+</div>
+
+</body>
+</html>

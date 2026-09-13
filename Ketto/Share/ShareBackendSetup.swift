@@ -14,6 +14,13 @@ struct WranglerConfig: Codable, Equatable, Sendable {
         }
     }
 
+    /// A bundling rule. The one Ketto needs pulls `index.html` in next to `worker.js` as a text module, so the
+    /// landing page stays a file anyone can open and the deploy stays one entry point.
+    struct Rule: Codable, Equatable, Sendable {
+        var type: String
+        var globs: [String]
+    }
+
     struct R2Bucket: Codable, Equatable, Sendable {
         var binding: String
         var bucketName: String
@@ -30,10 +37,11 @@ struct WranglerConfig: Codable, Equatable, Sendable {
     var workersDev: Bool
     var vars: [String: String]
     var routes: [Route]
+    var rules: [Rule]
     var r2Buckets: [R2Bucket]
 
     enum CodingKeys: String, CodingKey {
-        case name, main, vars, routes
+        case name, main, vars, routes, rules
         case compatibilityDate = "compatibility_date"
         case workersDev = "workers_dev"
         case r2Buckets = "r2_buckets"
@@ -47,6 +55,7 @@ struct WranglerConfig: Codable, Equatable, Sendable {
             workersDev: false,
             vars: ["BUCKET_NAME": bucket],
             routes: [Route(pattern: domain, customDomain: true)],
+            rules: [Rule(type: "Text", globs: ["**/*.html"])],
             r2Buckets: [R2Bucket(binding: "VIDEOS", bucketName: bucket)]
         )
     }
@@ -66,7 +75,7 @@ struct ShareSetupBundle: Equatable, Sendable {
     static let bucketName = "ketto-videos"
     /// Keep in step with `WorkerTests/wrangler.jsonc`.
     static let compatibilityDate = "2026-08-01"
-    static let bundledFiles = ["worker.js", "setup.sh"]
+    static let bundledFiles = ["worker.js", "index.html", "setup.sh"]
 
     let directory: URL
     let domain: String
@@ -118,6 +127,7 @@ struct ShareSetupBundle: Equatable, Sendable {
           \(directory.path)
 
           worker.js      the Cloudflare Worker that stores and serves the videos (do not edit)
+          index.html     the landing page the Worker serves at https://\(domain)/ (do not edit)
           wrangler.json  its configuration: Worker "\(worker)", R2 bucket "\(bucket)", custom domain \(domain) (do not edit)
           secret.txt     the bearer token Ketto authenticates with; it goes into the Worker as the secret KETTO_TOKEN
           setup.sh       a script that does steps 3 to 6 below; all of them are safe to repeat
@@ -130,7 +140,7 @@ struct ShareSetupBundle: Equatable, Sendable {
         4. Add the lifecycle rule that expires objects after 3 days and aborts unfinished multipart uploads after 1 day: `wrangler r2 bucket lifecycle add \(bucket) ketto-expire --expire-days 3 --abort-multipart-days 1 --force`. If a rule named ketto-expire is already there, keep it.
         5. Deploy the Worker from the folder above: `cd` into it and run `wrangler deploy`, so it picks up wrangler.json. This creates the Worker \(worker) and attaches \(domain) as its custom domain; wrangler adds the DNS record and the certificate itself.
         6. Store the token as the Worker secret straight from the file, in the same folder: `wrangler secret put KETTO_TOKEN < secret.txt`. Do not read the token out, print it or paste it anywhere; it is a credential.
-        7. Verify: `curl -s https://\(domain)/` should answer {"service":"ketto-share","api":\(ShareBackendClient.apiVersion)}. A new hostname can take a minute or two while Cloudflare issues its certificate, so retry a few times before calling it a failure.
+        7. Verify: `curl -s https://\(domain)/` should answer {"service":"ketto-share","api":\(ShareBackendClient.apiVersion)} — a browser at that same address gets Ketto's landing page instead, which is expected. A new hostname can take a minute or two while Cloudflare issues its certificate, so retry a few times before calling it a failure.
 
         The quickest way through steps 3 to 6 is `\(scriptCommand)`; if it fails, fix the cause and run it again, or finish the remaining steps yourself. Change nothing else on the Cloudflare account and nothing in the folder. When the Worker answers, tell me: Ketto connects to it on its own (Settings › Sharing) and then deletes secret.txt.
         """

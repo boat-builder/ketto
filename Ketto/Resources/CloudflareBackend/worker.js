@@ -13,7 +13,8 @@
  *
  * Contract, API_VERSION 1. Routes marked "auth" need `Authorization: Bearer <KETTO_TOKEN>`.
  *
- *   GET    /                                      { service, api }
+ *   GET    /                                      the landing page for a browser (Accept:
+ *                                                       text/html), otherwise { service, api }
  *   GET    /api/status                            auth  { ok, api, bucket }
  *   POST   /api/uploads                           auth  { title, filename, size, contentType }
  *                                                       -> 201 { id, uploadId, partSize }
@@ -31,9 +32,15 @@
  *   GET    /f/:id                                        the video itself, Range requests honoured.
  *                                                       ?download=1 serves it as an attachment.
  *
+ * index.html sits next to this file and is bundled into the Worker as text (the `Text` rule in
+ * wrangler.json), so the deploy stays one `wrangler deploy` of one entry point.
+ *
  * Errors are JSON `{ error }` with a matching status. Anything under /api answers 503 while
  * KETTO_TOKEN is not set (between `wrangler deploy` and `wrangler secret put`).
  */
+
+/** The landing page, bundled as text. See the `Text` rule in wrangler.json. */
+import LANDING_PAGE from "./index.html";
 
 const API_VERSION = 1;
 /** Bytes per multipart part. Under the 100 MB Worker request-body limit on every plan and a
@@ -48,8 +55,8 @@ const ID_PATTERN = "[a-z2-7]{26}";
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 
 const routes = [
-  ["GET", /^\/$/, () => json({ service: "ketto-share", api: API_VERSION })],
-  ["HEAD", /^\/$/, () => json({ service: "ketto-share", api: API_VERSION })],
+  ["GET", /^\/$/, root],
+  ["HEAD", /^\/$/, root],
   ["GET", new RegExp(`^/v/(${ID_PATTERN})$`), viewerPage],
   ["HEAD", new RegExp(`^/v/(${ID_PATTERN})$`), viewerPage],
   ["GET", new RegExp(`^/f/(${ID_PATTERN})$`), serveVideo],
@@ -337,6 +344,61 @@ function notFoundPage() {
       "X-Content-Type-Options": "nosniff",
     },
   });
+}
+
+// MARK: - Landing page
+
+/**
+ * The root answers two different callers. A browser asks for text/html and gets index.html —
+ * the landing page every domain running this Worker serves, and the reason someone who was
+ * sent a share link can find out what made it. Everything else — the app, the `curl -s
+ * https://<domain>/` the setup verifies with, any monitor — asks for anything at all and keeps
+ * the JSON handshake the contract at the top of this file promises.
+ */
+async function root({ request }) {
+  if (!wantsHTML(request)) return json({ service: "ketto-share", api: API_VERSION });
+  const headers = new Headers({
+    "Content-Type": "text/html; charset=utf-8",
+    // Same posture as the viewer page: the file carries no script and no third-party anything,
+    // so only its own style block and its data: favicon are allowed.
+    "Content-Security-Policy": [
+      "default-src 'none'",
+      "img-src data:",
+      `style-src '${await landingStyleHash()}'`,
+      "base-uri 'none'",
+      "form-action 'none'",
+    ].join("; "),
+    // Static, and the same for everyone; an hour is short enough that a redeploy shows up soon.
+    "Cache-Control": "public, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+  });
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(LANDING_PAGE, { status: 200, headers });
+}
+
+/** Browsers list text/html in Accept; curl sends the anything wildcard and the app asks for JSON. */
+function wantsHTML(request) {
+  const accept = request.headers.get("Accept") || "";
+  return accept.split(",").some((type) => type.trim().toLowerCase().startsWith("text/html"));
+}
+
+let landingStyle;
+/**
+ * The CSP names the SHA-256 of the page's one style block, so it needs no 'unsafe-inline' and
+ * editing index.html cannot leave the policy behind. Computed once per isolate. The page keeps
+ * all of its styling in that block; a style="" attribute would need 'unsafe-hashes' as well.
+ */
+function landingStyleHash() {
+  landingStyle ??= (async () => {
+    // Exactly the element's text content, the newlines around it included: that is what a
+    // browser hashes, and trimming either end quietly blocks the page's own style.
+    const match = LANDING_PAGE.match(/\n<style>([\s\S]*?)<\/style>\n/);
+    if (!match) throw new Error("index.html has no style element to hash for the CSP");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(match[1]));
+    return `sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}`;
+  })();
+  return landingStyle;
 }
 
 // MARK: - Viewer

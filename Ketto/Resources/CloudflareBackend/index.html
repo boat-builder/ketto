@@ -3,6 +3,13 @@
   Ketto's landing page: what a browser gets at the root of a domain running the sharing
   backend, and a file that stands on its own anywhere else it is hosted.
 
+  The look follows the app's design: warm white, near-black ink, one ultramarine accent, a
+  lime pop used once (the label above the headline), the red dot of the wordmark, and hairline
+  rules. The primary action is the black pill the app uses for Record. The illustration is the
+  app's floating capture bar over a vivid desktop, with a window and the camera bubble behind
+  it, drawn inline so the page needs nothing else. Dark appearance swaps to midnight with the
+  accent lifted for contrast; the illustration stays as it is, since it is a picture of a screen.
+
   One viewport, no scrolling: the shell is a 100dvh column, and every type size is capped
   against vh as well as vw so a short window shrinks the page instead of pushing it past the
   fold. The illustration is dropped below 880px, where the two columns would stack and there
@@ -22,9 +29,9 @@
 <title>Ketto — beautiful screen recordings, ready to share</title>
 <meta name="description" content="Ketto records your Mac and does the editing itself: smooth cursor motion, zooms timed to the action, attractive framing. One click turns it into a link that plays in any browser, on your own domain.">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#fbfafc" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c0715" media="(prefers-color-scheme: dark)">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='40' y='40' width='944' height='944' rx='224' fill='%232D126B'/%3E%3Ccircle cx='512' cy='512' r='264' fill='none' stroke='%23FF625F' stroke-width='112' stroke-linecap='round' stroke-dasharray='1393 266' transform='rotate(-29 512 512)'/%3E%3Ccircle cx='512' cy='512' r='92' fill='%23FF625F'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#fbf6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0227" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231D1D1D'/%3E%3Ccircle cx='32' cy='32' r='12' fill='%23FF4F36'/%3E%3C/svg%3E">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Ketto">
 <meta property="og:title" content="Ketto — beautiful screen recordings, ready to share">
@@ -33,39 +40,40 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
-  --bg: #fbfafc;
-  --ink: #17111f;
-  --muted: #6d6579;
-  --faint: #8d879a;
-  --line: rgba(23, 17, 31, .10);
-  --hair: rgba(23, 17, 31, .07);
-  --panel: #ffffff;
-  --stage: #f3f1f6;
-  --stage-edge: rgba(23, 17, 31, .09);
-  --glow: rgba(76, 32, 153, .13);
-  --accent: #ff625f;
-  --accent-ink: #ffffff;
-  --shadow: 0 24px 60px -30px rgba(23, 17, 31, .34), 0 2px 6px -2px rgba(23, 17, 31, .08);
-  --icon-shadow: 0 14px 32px -14px rgba(45, 18, 107, .55);
-  --cta-shadow: 0 12px 28px -10px rgba(255, 98, 95, .70);
+  --bg: #fbf6f4;
+  --ink: #1d1d1d;
+  --muted: #5c5d6b;
+  --hair: #ece4de;
+  --outline: #d9d0c9;
+  --accent: #343ced;
+  --accent-text: #343ced;
+  --lime: #d8fd49;
+  --lime-ink: #1d1d1d;
+  --record: #ff4f36;
+  --cta: #1d1d1d;
+  --cta-ink: #ffffff;
+  --cta-hover: #3a3a3a;
+  --glow-a: rgba(255, 147, 95, .17);
+  --glow-b: rgba(225, 107, 255, .12);
+  --shadow: 0 0 0 1px rgba(29, 29, 29, .06), 0 30px 64px -34px rgba(48, 8, 118, .42);
   --pad: clamp(20px, 5vw, 52px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0c0715;
-    --ink: #f4f1f8;
-    --muted: #a79fba;
-    --faint: #8b83a1;
-    --line: rgba(255, 255, 255, .12);
-    --hair: rgba(255, 255, 255, .08);
-    --panel: rgba(255, 255, 255, .05);
-    --stage: rgba(255, 255, 255, .035);
-    --stage-edge: rgba(255, 255, 255, .10);
-    --glow: rgba(124, 74, 220, .20);
-    --shadow: 0 30px 70px -34px rgba(0, 0, 0, .80);
-    --icon-shadow: 0 16px 38px -14px rgba(0, 0, 0, .70);
-    --cta-shadow: 0 12px 30px -12px rgba(255, 98, 95, .55);
+    --bg: #0a0227;
+    --ink: #f4f2ff;
+    --muted: #aba8c8;
+    --hair: rgba(255, 255, 255, .10);
+    --outline: rgba(255, 255, 255, .24);
+    --accent: #7a80f2;
+    --accent-text: #9297f4;
+    --cta: #ffffff;
+    --cta-ink: #0a0227;
+    --cta-hover: #e2e3fb;
+    --glow-a: rgba(52, 60, 237, .30);
+    --glow-b: rgba(225, 107, 255, .13);
+    --shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 30px 70px -34px rgba(0, 0, 0, .80);
   }
 }
 
@@ -83,8 +91,10 @@ body {
 }
 body::before {
   content: "";
-  position: fixed; inset: -25% -10% auto -10%; height: 85%;
-  background: radial-gradient(46% 58% at 62% 34%, var(--glow) 0%, transparent 70%);
+  position: fixed; inset: -20% -10% auto -10%; height: 90%;
+  background:
+    radial-gradient(34% 46% at 76% 40%, var(--glow-a) 0%, transparent 70%),
+    radial-gradient(28% 40% at 60% 62%, var(--glow-b) 0%, transparent 70%);
   pointer-events: none; z-index: -1;
 }
 svg { display: block; }
@@ -98,42 +108,51 @@ a { color: inherit; }
   display: flex; flex-direction: column;
 }
 
-/* Top bar */
+/* Top bar: the wordmark, and two quiet links */
 .bar {
   flex: none;
   display: flex; align-items: center; justify-content: space-between;
   padding-block: clamp(13px, 2.2vh, 24px);
 }
-.mark { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; font-weight: 590; letter-spacing: -.012em; }
-.mark svg { width: 21px; height: 21px; border-radius: 6px; }
-.bar nav { display: flex; align-items: center; gap: clamp(16px, 3vw, 26px); font-size: 14px; color: var(--muted); }
-.bar nav a { text-decoration: none; transition: color .15s ease; }
+.mark {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 17px; font-weight: 600; letter-spacing: -.02em; text-decoration: none;
+}
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--record); }
+.bar nav { display: flex; align-items: center; gap: clamp(14px, 2.6vw, 22px); font-size: 14px; color: var(--muted); }
+.bar nav a { text-decoration: none; transition: color .15s ease, box-shadow .15s ease; }
 .bar nav a:hover { color: var(--ink); }
+.bar nav .pill {
+  display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 16px;
+  color: var(--ink); font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--outline);
+}
+.bar nav .pill:hover { box-shadow: inset 0 0 0 1px var(--ink); }
 
 /* The one screen */
 .hero {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr);
   align-items: center;
-  gap: clamp(30px, 5vw, 78px);
+  gap: clamp(30px, 5vw, 72px);
   padding-block: clamp(12px, 3.2vh, 50px);
 }
-.appicon {
-  width: clamp(44px, min(4.8vw, 7vh), 64px);
-  height: clamp(44px, min(4.8vw, 7vh), 64px);
-  border-radius: 22%;
-  margin-bottom: clamp(13px, 2.2vh, 24px);
-  filter: drop-shadow(var(--icon-shadow));
+.eyebrow {
+  display: inline-flex; align-items: center; height: 26px; margin: 0 0 clamp(14px, 2.4vh, 26px);
+  padding: 0 11px; border-radius: 13px;
+  background: var(--lime); color: var(--lime-ink);
+  font-size: 12.5px; font-weight: 600; letter-spacing: -.004em;
 }
 h1 {
   margin: 0;
   max-width: 14ch;
-  font-size: clamp(29px, min(4.1vw, 5.9vh), 51px);
+  font-size: clamp(29px, min(4.1vw, 5.9vh), 52px);
   line-height: 1.06;
   letter-spacing: -.035em;
   font-weight: 600;
 }
+h1 span { color: var(--accent-text); }
 .lead {
   margin: clamp(13px, 2vh, 22px) 0 0;
   max-width: 33rem;
@@ -142,42 +161,25 @@ h1 {
   color: var(--muted);
   letter-spacing: -.006em;
 }
-.lead em { font-style: normal; color: var(--ink); }
+.lead em { font-style: normal; font-weight: 500; color: var(--ink); }
 
 .cta { margin-top: clamp(18px, 3vh, 34px); }
 .get {
   display: inline-flex; align-items: center; gap: 10px;
-  padding: 14px 26px; border-radius: 999px;
-  background: var(--accent); color: var(--accent-ink);
+  height: 48px; padding: 0 24px 0 20px; border-radius: 24px;
+  background: var(--cta); color: var(--cta-ink);
   font-size: 16px; font-weight: 590; letter-spacing: -.01em; text-decoration: none;
-  box-shadow: var(--cta-shadow);
-  transition: transform .18s ease, filter .18s ease;
+  transition: background-color .15s ease, transform .18s ease;
 }
-.get svg { width: 17px; height: 17px; fill: currentColor; }
-.get:hover { transform: translateY(-1px); filter: saturate(1.06) brightness(1.03); }
+.get svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.get:hover { background: var(--cta-hover); transform: translateY(-1px); }
 .get:active { transform: translateY(0); }
-.fine { margin: 13px 0 0; font-size: 13px; color: var(--faint); letter-spacing: -.004em; }
+.fine { margin: 13px 0 0; font-size: 13px; color: var(--muted); letter-spacing: -.004em; }
 
-/* The illustration */
-.stage svg { width: 100%; height: auto; border-radius: clamp(12px, 1.6vw, 20px); box-shadow: var(--shadow); }
-.sg-screen { fill: var(--stage); stroke: var(--stage-edge); stroke-width: 2; }
-.sg-wash-a { stop-color: var(--glow); }
-.sg-wash-b { stop-color: transparent; }
-.sg-window { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
-.sg-dot { fill: var(--ink); opacity: .18; }
-.sg-line { fill: var(--ink); opacity: .10; }
-.sg-panel { fill: var(--ink); opacity: .055; }
-.sg-chip { fill: var(--accent); opacity: .22; }
-.sg-bracket { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
-.sg-track { fill: none; stroke: var(--ink); opacity: .22; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 11; }
-.sg-cursor { fill: #fff; stroke: rgba(12, 7, 21, .55); stroke-width: 1.4; stroke-linejoin: round; }
-.sg-bar { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
-.sg-bar-el { fill: var(--ink); opacity: .16; }
-.sg-rec { fill: var(--accent); }
-.sg-link { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
-.sg-link-text { fill: var(--ink); opacity: .16; }
-.sg-link-tile { fill: #2d126b; }
-.sg-link-dot { fill: var(--accent); }
+/* The illustration. Its corners are the SVG's own 24-unit radius, as a percentage of the
+   1200 x 700 box, so the shadow follows the picture at every size. */
+.stage svg { width: 100%; height: auto; border-radius: 2% / 3.4286%; box-shadow: var(--shadow); }
+.sg-label { font: 600 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; letter-spacing: -.01em; }
 
 /* Three notes and the footer, both on the same line-up at the bottom */
 .notes {
@@ -189,9 +191,9 @@ h1 {
 }
 .note { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); letter-spacing: -.003em; }
 .note::before {
-  content: ""; display: block; width: 22px; height: 2px;
+  content: ""; display: block; width: 20px; height: 2px;
   margin-bottom: clamp(9px, 1.4vh, 14px);
-  background: var(--accent); border-radius: 2px;
+  background: var(--accent); border-radius: 1px;
 }
 .note b { color: var(--ink); font-weight: 600; }
 
@@ -200,7 +202,7 @@ footer {
   border-top: 1px solid var(--hair);
   padding-block: clamp(11px, 1.8vh, 20px) clamp(13px, 2.2vh, 24px);
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
-  font-size: 13px; color: var(--faint);
+  font-size: 13px; color: var(--muted);
 }
 footer nav { display: flex; flex-wrap: wrap; gap: clamp(14px, 3vw, 24px); }
 footer a { text-decoration: none; transition: color .15s ease; }
@@ -224,10 +226,10 @@ footer a:hover { color: var(--ink); }
 /* A short window — a small phone, or a browser carrying a lot of chrome — gets tighter type
    rather than a scrollbar. */
 @media (max-height: 700px) {
-  .appicon { margin-bottom: 10px; }
+  .eyebrow { margin-bottom: 12px; }
   .lead { margin-top: 12px; font-size: 14.5px; line-height: 1.5; }
   .cta { margin-top: 16px; }
-  .get { padding: 12px 22px; font-size: 15px; }
+  .get { height: 44px; padding: 0 20px 0 17px; font-size: 15px; }
   .fine { margin-top: 10px; font-size: 12.5px; }
   .notes { padding-block: 14px; }
   .note { font-size: 12.5px; line-height: 1.5; }
@@ -240,10 +242,10 @@ footer a:hover { color: var(--ink); }
   .notes { display: none; }
 }
 
-/* A phone on its side: barely any height at all, so the app icon goes and the headline
+/* A phone on its side: barely any height at all, so the label goes and the headline
    stops being a display size. */
 @media (max-height: 460px) {
-  .appicon { display: none; }
+  .eyebrow { display: none; }
   h1 { font-size: clamp(21px, min(4.1vw, 7vh), 34px); }
   .lead { font-size: 14px; }
 }
@@ -258,29 +260,21 @@ footer a:hover { color: var(--ink); }
 <div class="shell">
 
   <header class="bar">
-    <a class="mark" href="/">
-      <svg viewBox="0 0 1024 1024" aria-hidden="true">
-        <rect x="40" y="40" width="944" height="944" rx="224" fill="#2D126B"/>
-        <circle cx="512" cy="512" r="264" fill="none" stroke="#FF625F" stroke-width="112" stroke-linecap="round" stroke-dasharray="1393 266" transform="rotate(-29 512 512)"/>
-        <circle cx="512" cy="512" r="92" fill="#FF625F"/>
-      </svg>
-      <span>Ketto</span>
+    <a class="mark" href="/" aria-label="Ketto">
+      <span class="dot" aria-hidden="true"></span>
+      <span>ketto</span>
     </a>
     <nav>
       <a href="https://github.com/boat-builder/ketto">GitHub</a>
-      <a href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">Download</a>
+      <a class="pill" href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">Download</a>
     </nav>
   </header>
 
   <main class="hero">
     <section class="pitch">
-      <svg class="appicon" viewBox="0 0 1024 1024" role="img" aria-label="Ketto">
-        <rect x="40" y="40" width="944" height="944" rx="224" fill="#2D126B"/>
-        <circle cx="512" cy="512" r="264" fill="none" stroke="#FF625F" stroke-width="112" stroke-linecap="round" stroke-dasharray="1393 266" transform="rotate(-29 512 512)"/>
-        <circle cx="512" cy="512" r="92" fill="#FF625F"/>
-      </svg>
+      <p class="eyebrow">A screen recorder for the Mac</p>
 
-      <h1>Beautiful screen recordings, shared the moment you stop</h1>
+      <h1>Beautiful screen recordings, <span>shared the moment you stop</span></h1>
 
       <p class="lead">
         Ketto records your Mac and does the editing itself: the cursor glides instead of darting,
@@ -290,7 +284,7 @@ footer a:hover { color: var(--ink); }
 
       <div class="cta">
         <a class="get" href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5V10M5 7.5l3 3 3-3M3 13h10"/></svg>
           <span>Download for macOS</span>
         </a>
         <p class="fine">macOS 14 or later · Apple silicon and Intel · signed and notarized</p>
@@ -298,59 +292,109 @@ footer a:hover { color: var(--ink); }
     </section>
 
     <section class="stage">
-      <svg viewBox="0 0 1200 700" role="img" aria-label="A Mac display: a window with the pointer gliding into the region the recording has zoomed to, Ketto's floating capture bar below it, and the share link it copies.">
+      <svg viewBox="0 0 1200 700" role="img" aria-label="A Mac desktop with a window being recorded, your camera in a round bubble, and Ketto's floating capture bar: display, window or region, microphone, system audio, camera and keystrokes, and a Record button.">
         <defs>
-          <radialGradient id="wash" cx="50%" cy="18%" r="70%">
-            <stop class="sg-wash-a" offset="0%"/>
-            <stop class="sg-wash-b" offset="100%"/>
-          </radialGradient>
+          <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#FFB088"/>
+            <stop offset=".48" stop-color="#F58FC8"/>
+            <stop offset="1" stop-color="#A98BFF"/>
+          </linearGradient>
+          <clipPath id="screen"><rect width="1200" height="700" rx="24"/></clipPath>
+          <clipPath id="cam"><circle cx="61" cy="61" r="61"/></clipPath>
+          <filter id="soft" x="-10%" y="-10%" width="120%" height="130%">
+            <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#1B1F1D" flood-opacity=".07"/>
+          </filter>
+          <filter id="lift" x="-10%" y="-60%" width="120%" height="240%">
+            <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#1B1F1D" flood-opacity=".17"/>
+          </filter>
         </defs>
 
-        <rect class="sg-screen" x="1" y="1" width="1198" height="698" rx="26"/>
-        <rect x="1" y="1" width="1198" height="698" rx="26" fill="url(#wash)"/>
+        <g clip-path="url(#screen)">
+          <rect width="1200" height="700" fill="url(#wall)"/>
 
-        <!-- A window being recorded -->
-        <rect class="sg-window" x="200" y="62" width="800" height="420" rx="20"/>
-        <circle class="sg-dot" cx="232" cy="94" r="6"/>
-        <circle class="sg-dot" cx="254" cy="94" r="6"/>
-        <circle class="sg-dot" cx="276" cy="94" r="6"/>
-        <rect class="sg-line" x="232" y="144" width="412" height="13" rx="6.5"/>
-        <rect class="sg-line" x="232" y="176" width="286" height="13" rx="6.5"/>
-        <rect class="sg-panel" x="232" y="226" width="178" height="226" rx="14"/>
-        <rect class="sg-line" x="452" y="226" width="424" height="13" rx="6.5"/>
-        <rect class="sg-line" x="452" y="258" width="352" height="13" rx="6.5"/>
-        <rect class="sg-line" x="452" y="290" width="396" height="13" rx="6.5"/>
-        <rect class="sg-chip" x="452" y="334" width="150" height="42" rx="12"/>
-        <rect class="sg-line" x="452" y="418" width="300" height="13" rx="6.5"/>
+          <!-- The menu bar, with Ketto's item at the right -->
+          <rect width="1200" height="34" fill="#FBFBFA" fill-opacity=".6"/>
+          <rect x="24" y="13" width="40" height="8" rx="4" fill="#1D1D1D" fill-opacity=".55"/>
+          <rect x="80" y="13" width="26" height="8" rx="4" fill="#1D1D1D" fill-opacity=".28"/>
+          <rect x="120" y="13" width="26" height="8" rx="4" fill="#1D1D1D" fill-opacity=".28"/>
+          <rect x="160" y="13" width="34" height="8" rx="4" fill="#1D1D1D" fill-opacity=".28"/>
+          <rect x="208" y="13" width="44" height="8" rx="4" fill="#1D1D1D" fill-opacity=".28"/>
+          <rect x="1080" y="13" width="58" height="8" rx="4" fill="#1D1D1D" fill-opacity=".28"/>
+          <circle cx="1166" cy="17" r="6.5" fill="none" stroke="#1D1D1D" stroke-width="1.4"/>
+          <circle cx="1166" cy="17" r="2.3" fill="#1D1D1D"/>
 
-        <!-- Where the zoom lands -->
-        <path class="sg-bracket" d="M430 236 V198 H468"/>
-        <path class="sg-bracket" d="M910 198 H948 V236"/>
-        <path class="sg-bracket" d="M948 416 V454 H910"/>
-        <path class="sg-bracket" d="M468 454 H430 V416"/>
+          <!-- A window being recorded -->
+          <g filter="url(#soft)">
+            <rect x="140" y="78" width="660" height="390" rx="16" fill="#FBFBFA" fill-opacity=".58" stroke="#1B1F1D" stroke-opacity=".10"/>
+          </g>
+          <circle cx="166" cy="104" r="5.5" fill="#1B1F1D" fill-opacity=".12"/>
+          <circle cx="186" cy="104" r="5.5" fill="#1B1F1D" fill-opacity=".12"/>
+          <circle cx="206" cy="104" r="5.5" fill="#1B1F1D" fill-opacity=".12"/>
+          <rect x="162" y="140" width="96" height="8" rx="4" fill="#1B1F1D" fill-opacity=".10"/>
+          <rect x="162" y="166" width="120" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="162" y="192" width="84" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="162" y="218" width="108" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="162" y="244" width="72" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="318" y="138" width="220" height="14" rx="7" fill="#1B1F1D" fill-opacity=".10"/>
+          <rect x="318" y="176" width="144" height="96" rx="10" fill="#1B1F1D" fill-opacity=".05"/>
+          <rect x="476" y="176" width="144" height="96" rx="10" fill="#1B1F1D" fill-opacity=".05"/>
+          <rect x="634" y="176" width="144" height="96" rx="10" fill="#1B1F1D" fill-opacity=".05"/>
+          <rect x="318" y="296" width="460" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="318" y="320" width="380" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="318" y="344" width="300" height="8" rx="4" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="318" y="380" width="112" height="32" rx="16" fill="#343CED"/>
+          <g transform="translate(404 398) scale(1.45)">
+            <path d="M0 0 L0 22.5 L5.3 17.4 L8.8 24.6 L12.6 22.8 L9.1 15.7 L16.2 15.4 Z" fill="#FFFFFF" stroke="#1D1D1D" stroke-opacity=".7" stroke-width=".9" stroke-linejoin="round"/>
+          </g>
 
-        <!-- The pointer, smoothed -->
-        <path class="sg-track" d="M268 456 C 352 456 372 410 438 390 S 520 364 560 348"/>
-        <g transform="translate(560 348) scale(1.7)">
-          <path class="sg-cursor" d="M0 0 L0 22.5 L5.3 17.4 L8.8 24.6 L12.6 22.8 L9.1 15.7 L16.2 15.4 Z"/>
+          <!-- Your camera, in its bubble -->
+          <g filter="url(#lift)">
+            <g transform="translate(944 330) scale(1.18)">
+              <g clip-path="url(#cam)">
+                <rect width="122" height="122" fill="#E2E3FB"/>
+                <circle cx="61" cy="52" r="21" fill="#9297F4"/>
+                <path d="M17 122c4-26 22-38 44-38s40 12 44 38z" fill="#9297F4"/>
+              </g>
+              <circle cx="61" cy="61" r="60.4" fill="none" stroke="#FFFFFF" stroke-width="1.3"/>
+            </g>
+          </g>
+
+          <!-- The floating capture bar -->
+          <g filter="url(#lift)">
+            <rect x="192" y="556" width="816" height="88" rx="44" fill="#FBFBFA" fill-opacity=".95" stroke="#1B1F1D" stroke-opacity=".14"/>
+          </g>
+          <path d="M220 594 l12 12 M232 594 l-12 12" fill="none" stroke="#5C5D6B" stroke-width="1.8" stroke-linecap="round"/>
+
+          <rect x="252" y="570" width="282" height="60" rx="30" fill="#1B1F1D" fill-opacity=".06"/>
+          <rect x="258" y="576" width="92" height="48" rx="24" fill="#FFFFFF" stroke="#1B1F1D" stroke-opacity=".08"/>
+          <g fill="none" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <g transform="translate(290 586) scale(1.75)" stroke="#1D1D1D"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 13.5h4M8 11v2.5"/></g>
+            <g transform="translate(382 586) scale(1.75)" stroke="#5C5D6B"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M2 6h12"/></g>
+            <g transform="translate(472 586) scale(1.75)" stroke="#5C5D6B"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5" stroke-dasharray="2.2 2.2"/></g>
+          </g>
+
+          <rect x="551" y="584" width="1.6" height="32" fill="#1B1F1D" fill-opacity=".14"/>
+
+          <rect x="570" y="576" width="84" height="48" rx="24" fill="#E2E3FB"/>
+          <circle cx="686" cy="600" r="24" fill="#E2E3FB"/>
+          <circle cx="742" cy="600" r="24" fill="#E2E3FB"/>
+          <rect x="622" y="596" width="3" height="8" rx="1.5" fill="#343CED"/>
+          <rect x="629" y="591" width="3" height="18" rx="1.5" fill="#343CED"/>
+          <rect x="636" y="594" width="3" height="12" rx="1.5" fill="#343CED"/>
+          <g fill="none" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <g transform="translate(584 586) scale(1.75)" stroke="#2A31D4"><rect x="6" y="2" width="4" height="7" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"/></g>
+            <g transform="translate(672 586) scale(1.75)" stroke="#2A31D4"><path d="M3 6.5h2l3-2.5v8L5 9.5H3z"/><path d="M10.5 6a3 3 0 0 1 0 4M12.2 4.3a5.5 5.5 0 0 1 0 7.4"/></g>
+            <g transform="translate(728 586) scale(1.75)" stroke="#2A31D4"><rect x="2" y="4.5" width="8.5" height="7" rx="1.8"/><path d="M10.5 7.2 14 5.5v5l-3.5-1.7"/></g>
+            <g transform="translate(782 586) scale(1.75)" stroke="#5C5D6B"><rect x="1.5" y="4" width="13" height="8" rx="1.8"/><path d="M5 9.5h6M2.5 14 13.5 2"/></g>
+            <g transform="translate(818 591) scale(1.15)" stroke="#5C5D6B" stroke-width="1.8"><path d="M4 6l4 4 4-4"/></g>
+          </g>
+
+          <rect x="851" y="584" width="1.6" height="32" fill="#1B1F1D" fill-opacity=".14"/>
+
+          <rect x="868" y="574" width="122" height="52" rx="26" fill="#1D1D1D"/>
+          <circle cx="895" cy="600" r="6.5" fill="#FF4F36"/>
+          <text class="sg-label" x="910" y="607" fill="#FFFFFF">Record</text>
         </g>
-
-        <!-- The floating capture bar -->
-        <rect class="sg-bar" x="390" y="530" width="420" height="56" rx="28"/>
-        <rect class="sg-bar-el" x="414" y="547" width="36" height="22" rx="7"/>
-        <rect class="sg-bar-el" x="458" y="547" width="36" height="22" rx="7"/>
-        <rect class="sg-bar-el" x="502" y="547" width="36" height="22" rx="7"/>
-        <rect class="sg-bar-el" x="560" y="542" width="2" height="32" rx="1"/>
-        <circle class="sg-bar-el" cx="590" cy="558" r="10"/>
-        <circle class="sg-bar-el" cx="620" cy="558" r="10"/>
-        <circle class="sg-bar-el" cx="650" cy="558" r="10"/>
-        <circle class="sg-rec" cx="772" cy="558" r="17"/>
-
-        <!-- And the link it hands back -->
-        <rect class="sg-link" x="390" y="612" width="420" height="52" rx="26"/>
-        <rect class="sg-link-tile" x="418" y="627" width="24" height="24" rx="7"/>
-        <circle class="sg-link-dot" cx="430" cy="639" r="5.5"/>
-        <rect class="sg-link-text" x="462" y="632" width="212" height="13" rx="6.5"/>
       </svg>
     </section>
   </main>
@@ -358,11 +402,11 @@ footer a:hover { color: var(--ink); }
   <section class="notes">
     <p class="note"><b>Zooms that land</b> — Ketto keeps an event track, not just pixels, so the picture moves to whatever you were actually doing.</p>
     <p class="note"><b>A timeline when you want one</b> — trim, cut, re-speed, camera bubble, masks, keystrokes, 16:9 through 9:16.</p>
-    <p class="note"><b>Links you own</b> — share links come off your own domain and your own private Cloudflare bucket, and expire on their own.</p>
+    <p class="note"><b>Links you own</b> — share links come off your own domain and a private Cloudflare bucket of your own, and expire after about three days.</p>
   </section>
 
   <footer>
-    <span>Ketto — a screen recorder for macOS.</span>
+    <span>ketto — a screen recorder for the Mac.</span>
     <nav>
       <a href="https://github.com/boat-builder/ketto/releases/latest/download/Ketto-macos.dmg">Download</a>
       <a href="https://github.com/boat-builder/ketto/releases">Releases</a>

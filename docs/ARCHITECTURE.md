@@ -293,7 +293,10 @@ Worth knowing before touching any of it:
   third-party origin — it loads no CDN, font or analytics, and `default-src 'none'` blocks
   the rest. `VIEWER_JS` deliberately uses no template literals, because it is embedded in
   one; a `\` inside either constant has to be doubled (a bare `\00b7` in the CSS is a
-  legacy octal escape and the bundler rejects the file).
+  legacy octal escape and the bundler rejects the file). The viewer and the not-found page
+  share `PAGE_TOKENS` (the palette, light and dark, and the wordmark's styles) with each
+  other, and by hand with `index.html`, which as a file cannot import them; change a colour in
+  both places.
   The title is user-controlled and reaches the page through `escapeHTML` everywhere,
   including the link-preview metadata; `WorkerTests` pins that.
   The page renders itself `no-store`: it is built from live metadata, so a deleted video
@@ -315,8 +318,10 @@ Worth knowing before touching any of it:
 - Player behaviour worth knowing: speed and volume persist per browser in `localStorage`
   (wrapped in try/catch — private mode throws); `--ar` is set from `videoWidth/videoHeight`
   on `loadedmetadata` so the box stops being 16:9 for a vertical recording, with
-  `object-fit: contain` as the backstop; controls hide after 2.6 s of stillness only while
-  playing; `ended` drops `is-started` so the centre button returns as a replay; the
+  `object-fit: contain` as the backstop; the control row sits under the picture and stays,
+  except in full screen, where it floats over the picture and hides after 2.6 s of stillness
+  while playing (the `is-idle` class still toggles either way; only the full-screen rules act
+  on it, plus hiding the pointer over the picture); `ended` drops `is-started` so the centre button returns as a replay; the
   picture-in-picture button removes itself where the browser has no PiP, and full screen
   falls back to `webkitEnterFullscreen` on the video for iPhone, which has no element
   full screen.

@@ -37,8 +37,8 @@ almost every task needs one slice of it, not the whole thing.
 | [docs/SPEC.md](docs/SPEC.md) | ~530 | Architecture, data formats, algorithms, all four milestones | Building a feature — read the relevant section only |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | ~345 | How the shipped code behaves: tuning constants, invariants, the v2 timeline model, sharing, expected build warnings | Touching existing engine, render, playback, capture, export or sharing code |
 | [docs/RELEASING.md](docs/RELEASING.md) | ~145 | Signing secrets, how a release is cut, how updates reach users | Setting up CI signing, cutting or debugging a release |
-| `Ketto/Resources/CloudflareBackend/worker.js` | ~1020 | The sharing backend the app deploys to the user's Cloudflare account, including the viewer page share links open; its header is the HTTP contract | Touching sharing, on either side |
-| `Ketto/Resources/CloudflareBackend/index.html` | ~350 | The landing page that same Worker serves at the root of the domain — one self-contained file, hostable anywhere | Changing what Ketto's front page says |
+| `Ketto/Resources/CloudflareBackend/worker.js` | ~1200 | The sharing backend the app deploys to the user's Cloudflare account, including the viewer page share links open; its header is the HTTP contract | Touching sharing, on either side |
+| `Ketto/Resources/CloudflareBackend/index.html` | ~420 | The landing page that same Worker serves at the root of the domain — one self-contained file, hostable anywhere | Changing what Ketto's front page says |
 
 ### Picking one section out of the spec
 

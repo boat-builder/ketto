@@ -3,7 +3,7 @@ import AppKit
 @preconcurrency import AVFoundation
 
 /// The floating camera bubble: a borderless, always-on-top panel that shows the camera the way the video will
-/// show it — a mirrored circle with a white border and a shadow, the overlay's defaults — from the moment the
+/// show it — a mirrored circle with a thin white border and a shadow — from the moment the
 /// camera is switched on in the recorder, through the countdown and the whole recording. Ketto's own windows
 /// are never captured and clicks on them are never recorded, so it can sit anywhere on the recorded display;
 /// drag it wherever it is least in the way. Where it sits when the recording stops is where the camera bubble
@@ -209,7 +209,7 @@ private final class BubbleDragView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
 }
 
-/// The bubble itself: the mirrored camera in a circle with the overlay's default border and shadow, or a
+/// The bubble itself: the mirrored camera in a circle with a thin white border and a soft shadow, or a
 /// placeholder while the camera changes hands.
 struct CameraBubbleView: View {
     let controller: CameraBubbleController
@@ -219,18 +219,18 @@ struct CameraBubbleView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Color.black)
+            Circle().fill(KettoTheme.accentTint)
             if let session = controller.session {
                 CameraPreviewView(session: session, revision: controller.revision, circular: true)
             } else {
-                Image(systemName: "video.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white.opacity(0.5))
+                Image(systemName: "video")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(KettoTheme.accentInk.opacity(0.7))
             }
         }
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(.white, lineWidth: 4))
-        .shadow(color: .black.opacity(0.35), radius: 14, y: 8)
+        .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.22), radius: 15, y: 10)
         .padding(Self.shadowPadding)
     }
 }

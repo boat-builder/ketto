@@ -21,10 +21,10 @@ enum AppPage: String, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
-        case .library: return "film.stack"
+        case .library: return "square.grid.2x2"
         case .sharedLinks: return "link"
         case .recording: return "record.circle"
-        case .sharing: return "icloud.and.arrow.up"
+        case .sharing: return "cloud"
         case .updates: return "arrow.down.circle"
         }
     }

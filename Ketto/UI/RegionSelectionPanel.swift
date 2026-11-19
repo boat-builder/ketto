@@ -71,37 +71,65 @@ final class RegionSelectionView: NSView {
         addCursorRect(bounds, cursor: .crosshair)
     }
 
+    /// Ultramarine, as `KettoTheme.accent`: the selection's dashed outline, its handles and its size label.
+    private static let accent = NSColor(hex: 0x343CED)
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.35).setFill()
+        NSColor(hex: 0x1D1D1D, alpha: 0.18).setFill()
         if let selection {
             let path = NSBezierPath(rect: bounds)
             path.appendRect(selection)
             path.windingRule = .evenOdd
             path.fill()
-            NSColor.white.setStroke()
+            NSColor.white.withAlphaComponent(0.12).setFill()
+            selection.fill(using: .sourceOver)
+
+            // A 1pt dashed outline with four small square handles at the corners.
+            Self.accent.setStroke()
             let outline = NSBezierPath(rect: selection.insetBy(dx: 0.5, dy: 0.5))
             outline.lineWidth = 1
+            outline.setLineDash([4, 3], count: 2, phase: 0)
             outline.stroke()
+            for corner in [CGPoint(x: selection.minX, y: selection.minY), CGPoint(x: selection.maxX, y: selection.minY),
+                           CGPoint(x: selection.minX, y: selection.maxY), CGPoint(x: selection.maxX, y: selection.maxY)] {
+                let handle = NSBezierPath(roundedRect: CGRect(x: corner.x - 4, y: corner.y - 4, width: 8, height: 8), xRadius: 2, yRadius: 2)
+                NSColor.white.setFill()
+                handle.fill()
+                handle.lineWidth = 1
+                Self.accent.setStroke()
+                handle.stroke()
+            }
+
+            // The size, on an accent pill inside the bottom-right corner (or just outside it if the selection
+            // is too small to hold it).
             let label = "\(Int(selection.width.rounded())) × \(Int(selection.height.rounded()))" as NSString
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
                 .foregroundColor: NSColor.white,
             ]
             let size = label.size(withAttributes: attributes)
-            let origin = CGPoint(x: selection.minX, y: max(4, selection.minY - size.height - 6))
-            let background = NSBezierPath(roundedRect: CGRect(x: origin.x, y: origin.y, width: size.width + 12, height: size.height + 4), xRadius: 4, yRadius: 4)
-            NSColor.black.withAlphaComponent(0.7).setFill()
+            let pill = CGSize(width: size.width + 16, height: size.height + 6)
+            let fitsInside = selection.width > pill.width + 16 && selection.height > pill.height + 16
+            let origin = fitsInside
+                ? CGPoint(x: selection.maxX - pill.width - 8, y: selection.maxY - pill.height - 8)
+                : CGPoint(x: min(selection.maxX - pill.width, bounds.maxX - pill.width - 4), y: min(selection.maxY + 8, bounds.maxY - pill.height - 4))
+            let background = NSBezierPath(roundedRect: CGRect(origin: origin, size: pill), xRadius: pill.height / 2, yRadius: pill.height / 2)
+            Self.accent.setFill()
             background.fill()
-            label.draw(at: CGPoint(x: origin.x + 6, y: origin.y + 2), withAttributes: attributes)
+            label.draw(at: CGPoint(x: origin.x + 8, y: origin.y + 3), withAttributes: attributes)
         } else {
             bounds.fill()
             let hint = "Drag to select the area to record. Press Esc to cancel." as NSString
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 16, weight: .medium),
-                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                .foregroundColor: NSColor(hex: 0x1D1D1D),
             ]
             let size = hint.size(withAttributes: attributes)
-            hint.draw(at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attributes)
+            let pill = CGRect(x: bounds.midX - size.width / 2 - 18, y: bounds.midY - size.height / 2 - 10, width: size.width + 36, height: size.height + 20)
+            let background = NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2)
+            NSColor(hex: 0xFBFBFA, alpha: 0.94).setFill()
+            background.fill()
+            hint.draw(at: CGPoint(x: pill.minX + 18, y: pill.minY + 10), withAttributes: attributes)
         }
     }
 

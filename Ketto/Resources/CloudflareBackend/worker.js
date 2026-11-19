@@ -316,22 +316,23 @@ function notFoundPage() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Video not available \u00b7 Ketto</title>
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#0c0715">
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}">
+<meta name="theme-color" content="#fbf6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0227" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">
 <style>
+${PAGE_TOKENS}
+  *, *::before, *::after { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
-    background: #0c0715 radial-gradient(120% 85% at 50% 0%, #251047 0%, #0c0715 60%) no-repeat;
-    color: #f4f1f8; text-align: center;
-    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
+    min-height: 100vh; display: flex; flex-direction: column;
+    font-size: 15px; line-height: 1.6; text-align: center;
   }
-  svg { width: 54px; height: 54px; margin: 0 auto 18px; border-radius: 13px; opacity: .9; }
-  h1 { font-size: 19px; font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; }
-  p { margin: 0 auto; max-width: 30rem; color: #a79fba; }
+  header { padding: 18px clamp(16px, 3vw, 28px); text-align: left; }
+  main { flex: 1 1 auto; display: grid; place-content: center; padding: 24px 24px 72px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; }
+  p { margin: 0 auto; max-width: 30rem; color: var(--muted); }
 </style>
+<header>${WORDMARK}</header>
 <main>
-  ${LOGO_SVG}
   <h1>This video isn't available</h1>
   <p>Ketto share links stop working about three days after the video was shared, or sooner if the owner removed it.</p>
 </main>
@@ -403,164 +404,212 @@ function landingStyleHash() {
 
 // MARK: - Viewer
 
-/** The app icon, used inline in the header and, percent-encoded, as the favicon. */
-const LOGO_SVG =
-  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024' aria-hidden='true'>" +
-  "<rect x='40' y='40' width='944' height='944' rx='224' fill='#2D126B'/>" +
-  "<circle cx='512' cy='512' r='264' fill='none' stroke='#FF625F' stroke-width='112' stroke-linecap='round'" +
-  " stroke-dasharray='1393 266' transform='rotate(-29 512 512)'/>" +
-  "<circle cx='512' cy='512' r='92' fill='#FF625F'/></svg>";
+/**
+ * Ketto's favicon: the red record dot of the wordmark on an ink tile, so it reads in light and dark tab
+ * bars alike. Percent-encoded into a data: URL wherever it is used.
+ */
+const FAVICON_SVG =
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>" +
+  "<rect width='64' height='64' rx='16' fill='#1D1D1D'/>" +
+  "<circle cx='32' cy='32' r='12' fill='#FF4F36'/></svg>";
+
+/** The wordmark — the red dot and a lowercase name — linking to the landing page at the domain's root. */
+const WORDMARK = `<a class="mark" href="/" aria-label="Ketto"><span class="dot" aria-hidden="true"></span><span>ketto</span></a>`;
+
+/**
+ * The palette every page the Worker renders shares with index.html and the app: warm white, near-black ink,
+ * hairline rules, one ultramarine accent; midnight in dark appearance, with the accent lifted for contrast.
+ */
+const PAGE_TOKENS = `
+:root {
+  color-scheme: light dark;
+  --page: #fbf6f4;
+  --ink: #1d1d1d;
+  --muted: #5c5d6b;
+  --line: #ece4de;
+  --outline: #d9d0c9;
+  --hover: rgba(29, 29, 29, .06);
+  --accent: #343ced;
+  --accent-line: #343ced;
+  --record: #ff4f36;
+  --rest: #e8e1db;
+  --buffered: #c9c1bb;
+  --well: #f2ebe6;
+  --menu: #ffffff;
+  --menu-shadow: 0 14px 36px rgba(29, 29, 29, .16);
+  --frame-shadow: 0 0 0 1px rgba(29, 29, 29, .06), 0 24px 56px -28px rgba(48, 8, 118, .38);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0a0227;
+    --ink: #f4f2ff;
+    --muted: #aba8c8;
+    --line: rgba(255, 255, 255, .10);
+    --outline: rgba(255, 255, 255, .24);
+    --hover: rgba(255, 255, 255, .08);
+    --accent-line: #7a80f2;
+    --rest: rgba(255, 255, 255, .16);
+    --buffered: rgba(255, 255, 255, .32);
+    --well: #170d42;
+    --menu: #1a1045;
+    --menu-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+    --frame-shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 26px 64px -30px rgba(0, 0, 0, .8);
+  }
+}
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+.mark {
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  font-size: 15px; font-weight: 600; letter-spacing: -.01em; text-decoration: none;
+}
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--record); }
+`;
 
 const VIEWER_CSS = `
 *, *::before, *::after { box-sizing: border-box; }
+${PAGE_TOKENS}
 :root {
-  --text: #f4f1f8;
-  --muted: #a79fba;
-  --accent: #ff625f;
-  --surface: rgba(255, 255, 255, .08);
-  --surface-hover: rgba(255, 255, 255, .16);
   --radius: 14px;
   /* The stage's real size, measured in JS; these cover the first paint and JS being off. */
-  --fit: calc(100vh - 110px);
-  --wide: calc(100vw - 52px);
+  --fit: calc(100vh - 134px);
+  --wide: calc(100vw - 56px);
   --arn: 1.7778;
+  /* What sits under the picture inside the stage: the control row and the title. */
+  --below: 108px;
 }
 html, body { height: 100%; }
-body {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  background: #0c0715 radial-gradient(120% 85% at 50% 0%, #251047 0%, #0c0715 60%) no-repeat;
-  color: var(--text);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
+body { display: flex; flex-direction: column; }
 button { font: inherit; color: inherit; background: none; border: 0; margin: 0; padding: 0; cursor: pointer; }
-svg { display: block; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+svg.solid { fill: currentColor; stroke: none; }
+:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 6px; }
 
-/* Header */
-.top { display: flex; align-items: center; gap: 12px; padding: 14px clamp(14px, 3vw, 26px); }
-.logo { width: 28px; height: 28px; flex: none; border-radius: 7px; overflow: hidden; }
-.heading { flex: 1 1 auto; min-width: 0; }
-.heading h1 {
-  margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* Header: the wordmark and an outlined Download pill */
+.top {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 18px clamp(16px, 3vw, 28px);
 }
-.meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#expiry:not(:empty)::before { content: " \\00b7  "; }
 .download {
   flex: none; display: inline-flex; align-items: center; gap: 7px;
-  padding: 8px 13px; border-radius: 9px; background: var(--surface);
-  color: var(--text); text-decoration: none; font-size: 13.5px; font-weight: 500;
-  transition: background .15s;
+  height: 32px; padding: 0 14px 0 12px; border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--outline);
+  color: var(--ink); text-decoration: none; font-weight: 500;
+  transition: box-shadow .15s;
 }
-.download:hover { background: var(--surface-hover); }
+.download:hover { box-shadow: inset 0 0 0 1px var(--ink); }
 .download svg { width: 15px; height: 15px; }
-@media (max-width: 560px) { .download span { display: none; } .download { padding: 8px; } }
 
-/* Stage */
+/* Stage: the picture, its controls under it, then the title */
 .stage {
   flex: 1 1 auto; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  padding: 0 clamp(0px, 3vw, 26px) clamp(14px, 3vh, 26px);
+  padding: 4px clamp(16px, 3vw, 28px) clamp(14px, 3vh, 24px);
 }
+.sheet { display: flex; flex-direction: column; gap: 14px; max-width: 100%; }
 .player {
   position: relative;
+  display: flex; flex-direction: column; gap: 10px;
   max-width: 100%;
+  user-select: none; -webkit-user-select: none;
+}
+.screen {
+  position: relative;
   line-height: 0;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
-  box-shadow: 0 26px 70px rgba(0, 0, 0, .55);
-  user-select: none; -webkit-user-select: none;
+  box-shadow: var(--frame-shadow);
 }
 .player video {
   display: block;
   /* Every term is a length: a percentage here would resolve against the player, whose own
      width is what the video is deciding. */
   aspect-ratio: var(--arn);
-  width: min(var(--wide), 1600px, calc(var(--fit) * var(--arn)));
+  width: min(var(--wide), 1600px, calc((var(--fit) - var(--below)) * var(--arn)));
   height: auto;
   object-fit: contain;
   background: #000;
 }
-.player:fullscreen { max-width: none; border-radius: 0; }
-.player:fullscreen video { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; }
-.player:-webkit-full-screen { max-width: none; border-radius: 0; }
-.player:-webkit-full-screen video { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; }
+.player.is-idle .screen { cursor: none; }
 
 /* Centre play button and spinner */
 .poster {
   position: absolute; inset: 0; display: grid; place-items: center;
-  background: rgba(6, 3, 12, .32); transition: opacity .2s;
+  background: rgba(10, 2, 39, .18); transition: opacity .2s;
 }
 .player.is-started .poster { opacity: 0; pointer-events: none; }
 .poster i {
-  display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 10px 34px rgba(255, 98, 95, .45);
+  display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%;
+  background: var(--accent); color: #fff; box-shadow: 0 10px 30px rgba(52, 60, 237, .35);
   transition: transform .15s;
 }
 .poster:hover i { transform: scale(1.06); }
-.poster svg { width: 30px; height: 30px; margin-left: 4px; fill: #fff; }
+.poster svg { width: 26px; height: 26px; margin-left: 3px; }
 .spinner {
-  position: absolute; top: 50%; left: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px;
-  border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; border-radius: 50%;
+  position: absolute; top: 50%; left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+  border: 1.5px solid rgba(255, 255, 255, .3); border-top-color: #fff; border-radius: 50%;
   opacity: 0; pointer-events: none;
 }
 .player.is-waiting .spinner { opacity: 1; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error {
   position: absolute; inset: 0; display: none; place-items: center; text-align: center;
-  padding: 24px; background: #0c0715; color: var(--muted); font-size: 14px;
+  padding: 24px; background: var(--well); color: var(--muted); font-size: 14px; line-height: 1.5;
 }
 .player.is-broken .error { display: grid; }
 .player.is-broken .poster, .player.is-broken .controls, .player.is-broken .scrim { display: none; }
 
-/* Controls */
-.scrim {
-  position: absolute; inset: auto 0 0; height: 45%; pointer-events: none;
-  background: linear-gradient(to top, rgba(6, 3, 12, .85), rgba(6, 3, 12, 0));
-  transition: opacity .25s;
-}
+/* Controls: one row under the picture — play, time, seek, then speed, volume, PiP, full screen.
+   The row is its own size container, so a narrow player (a phone, or a vertical video) moves the
+   seek bar onto a line of its own. */
+.scrim { display: none; }
 .controls {
-  position: absolute; inset: auto 0 0;
-  padding: 0 clamp(8px, 1.6vw, 16px) clamp(8px, 1.4vw, 12px);
+  container-type: inline-size;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
   transition: opacity .25s;
 }
-.player.is-idle .controls, .player.is-idle .scrim { opacity: 0; }
-.player.is-idle .controls { pointer-events: none; }
-.player.is-idle { cursor: none; }
-
-.scrub { position: relative; padding: 10px 0; cursor: pointer; touch-action: none; }
-.track { position: relative; height: 4px; border-radius: 3px; background: rgba(255, 255, 255, .25); transition: height .12s; }
-.scrub:hover .track, .player.is-scrubbing .track { height: 7px; }
-.buffered, .played { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
-.buffered { background: rgba(255, 255, 255, .3); }
-.played { background: var(--accent); }
-.knob {
-  position: absolute; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px;
-  border-radius: 50%; background: #fff; transform: scale(0); transition: transform .12s;
+.ctl {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 15px;
+  color: var(--ink); transition: background-color .15s;
 }
-.scrub:hover .knob, .player.is-scrubbing .knob { transform: scale(1); }
+.ctl:hover { background: var(--hover); }
+.ctl svg { width: 16px; height: 16px; }
+.ctl.play { width: 36px; height: 36px; border-radius: 18px; margin-right: 4px; background: var(--accent); color: #fff; }
+.ctl.play:hover { background: var(--accent); filter: brightness(1.08); }
+.clock { flex: none; padding-right: 6px; font-variant-numeric: tabular-nums; }
+.clock #now { font-weight: 600; }
+.clock .total { color: var(--muted); }
+
+.scrub { position: relative; flex: 1 1 160px; min-width: 0; padding: 12px 0; cursor: pointer; touch-action: none; }
+.track { position: relative; height: 2px; border-radius: 1px; background: var(--rest); transition: height .12s; }
+.scrub:hover .track, .player.is-scrubbing .track { height: 4px; border-radius: 2px; }
+.buffered, .played { position: absolute; inset: 0 auto 0 0; border-radius: inherit; }
+.buffered { background: var(--buffered); }
+.played { background: var(--accent-line); }
+.knob {
+  position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 .5px rgba(29, 29, 29, .3), 0 1px 3px rgba(29, 29, 29, .25);
+  transform: scale(0); transition: transform .12s;
+}
+.scrub:hover .knob, .scrub:focus-visible .knob, .player.is-scrubbing .knob { transform: scale(1); }
 .bubble {
-  position: absolute; bottom: 26px; padding: 3px 7px; border-radius: 6px;
-  background: rgba(6, 3, 12, .9); font-size: 12px; font-variant-numeric: tabular-nums;
+  position: absolute; bottom: 30px; padding: 3px 7px; border-radius: 6px;
+  background: #1d1d1d; color: #fff; font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums;
   transform: translateX(-50%); opacity: 0; pointer-events: none; transition: opacity .12s;
 }
 .scrub:hover .bubble, .player.is-scrubbing .bubble { opacity: 1; }
 
-.row { display: flex; align-items: center; gap: 4px; }
-.row .ctl {
-  display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px;
-  color: #fff; opacity: .92; transition: background .15s, opacity .15s;
+@container (max-width: 520px) {
+  .scrub { order: -1; flex-basis: 100%; padding: 8px 0 6px; }
+  .clock { margin-right: auto; }
 }
-.row .ctl:hover { background: var(--surface-hover); opacity: 1; }
-.row .ctl svg { width: 19px; height: 19px; fill: currentColor; }
-.play svg { width: 22px; height: 22px; }
-.spacer { flex: 1 1 auto; }
-.clock { padding: 0 8px; font-size: 13px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, .9); }
-.clock .total { color: var(--muted); }
 
 .player .pause, .player.is-playing .play-icon { display: none; }
 .player.is-playing .pause { display: block; }
@@ -569,45 +618,109 @@ svg { display: block; }
 .player .shrink, .player.is-full .expand { display: none; }
 .player.is-full .shrink { display: block; }
 
-.volume { display: flex; align-items: center; }
+.volume { flex: none; display: flex; align-items: center; }
 .volume input {
-  width: 0; opacity: 0; margin: 0 0 0 2px; padding: 0; height: 4px; cursor: pointer;
+  width: 0; opacity: 0; margin: 0; padding: 0; height: 16px; cursor: pointer;
   -webkit-appearance: none; appearance: none; background: transparent;
-  transition: width .18s, opacity .18s;
+  transition: width .18s, opacity .18s, margin .18s;
 }
-.volume:hover input, .volume input:focus-visible { width: 74px; opacity: 1; margin-left: 6px; }
+.volume:hover input, .volume input:focus-visible { width: 64px; opacity: 1; margin: 0 6px 0 2px; }
 .volume input::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 3px;
-  background: linear-gradient(to right, #fff var(--fill, 100%), rgba(255, 255, 255, .3) var(--fill, 100%));
+  height: 2px; border-radius: 1px;
+  background: linear-gradient(to right, var(--accent-line) var(--fill, 100%), var(--rest) var(--fill, 100%));
 }
 .volume input::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -4px;
+  -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -5px;
   border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 .5px rgba(29, 29, 29, .3), 0 1px 3px rgba(29, 29, 29, .25);
 }
-.volume input::-moz-range-track { height: 4px; border-radius: 3px; background: rgba(255, 255, 255, .3); }
-.volume input::-moz-range-progress { height: 4px; border-radius: 3px; background: #fff; }
-.volume input::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+.volume input::-moz-range-track { height: 2px; border-radius: 1px; background: var(--rest); }
+.volume input::-moz-range-progress { height: 2px; border-radius: 1px; background: var(--accent-line); }
+.volume input::-moz-range-thumb {
+  width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 .5px rgba(29, 29, 29, .3), 0 1px 3px rgba(29, 29, 29, .25);
+}
 @media (pointer: coarse) { .volume input { display: none; } }
 
-.speed { position: relative; }
-.speed .ctl { width: auto; min-width: 40px; padding: 0 9px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.speed { flex: none; position: relative; }
+.speed .ctl { width: auto; min-width: 36px; padding: 0 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .menu {
-  position: absolute; bottom: 46px; right: 0; display: none; flex-direction: column;
-  min-width: 92px; padding: 5px; border-radius: 11px;
-  background: rgba(16, 9, 30, .96); border: 1px solid rgba(255, 255, 255, .12);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+  position: absolute; bottom: 38px; right: 0; z-index: 2; display: none; flex-direction: column;
+  min-width: 104px; padding: 5px; border-radius: 12px;
+  background: var(--menu); box-shadow: inset 0 0 0 1px var(--line), var(--menu-shadow);
 }
 .menu.is-open { display: flex; }
 .menu button {
-  display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 7px;
-  font-size: 13px; text-align: left; white-space: nowrap;
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
+  text-align: left; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.menu button:hover { background: var(--surface-hover); }
-.menu button::before { content: ""; width: 13px; height: 13px; flex: none; }
-.menu button[aria-checked="true"]::before {
-  background: var(--accent); border-radius: 50%; box-shadow: inset 0 0 0 3px rgba(16, 9, 30, .96);
+.menu button:hover { background: var(--hover); }
+.menu button::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; }
+.menu button[aria-checked="true"]::before { background: var(--accent-line); }
+.menu button[aria-checked="true"] { font-weight: 600; }
+
+/* Title under the picture. It takes the player's width rather than setting it. */
+.caption {
+  width: 0; min-width: 100%;
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 12px;
 }
-@media (max-width: 480px) { .row .ctl { width: 34px; height: 34px; } .clock { padding: 0 4px; font-size: 12px; } }
+.caption h1 {
+  margin: 0; min-width: 0; max-width: 100%;
+  font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+.meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+#expiry:not(:empty)::before { content: " \\00b7  "; }
+
+.foot { flex: none; padding: 0 28px 20px; text-align: center; font-size: 12px; color: var(--muted); }
+.foot a { color: var(--ink); }
+.foot a:hover { color: var(--muted); }
+
+/* Full screen: the picture fills the display and the controls float over its foot, white on a
+   scrim, hiding after a moment of stillness while it plays. */
+.player:fullscreen {
+  --ink: #fff; --muted: rgba(255, 255, 255, .72); --hover: rgba(255, 255, 255, .14);
+  --rest: rgba(255, 255, 255, .28); --buffered: rgba(255, 255, 255, .45); --accent-line: #8b90f5;
+  --menu: rgba(20, 12, 52, .96); --line: rgba(255, 255, 255, .12); --menu-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+  display: block; max-width: none; background: #000; color: #fff;
+}
+.player:fullscreen .screen { border-radius: 0; box-shadow: none; }
+.player:fullscreen video { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; }
+.player:fullscreen .scrim {
+  display: block; position: absolute; inset: auto 0 0; height: 40%; pointer-events: none;
+  background: linear-gradient(to top, rgba(10, 2, 39, .82), rgba(10, 2, 39, 0)); transition: opacity .25s;
+}
+.player:fullscreen .controls { position: absolute; inset: auto 0 0; padding: 0 clamp(12px, 2vw, 24px) clamp(10px, 1.6vw, 18px); }
+.player:fullscreen.is-idle { cursor: none; }
+.player:fullscreen.is-idle .controls, .player:fullscreen.is-idle .scrim { opacity: 0; }
+.player:fullscreen.is-idle .controls { pointer-events: none; }
+.player:-webkit-full-screen {
+  --ink: #fff; --muted: rgba(255, 255, 255, .72); --hover: rgba(255, 255, 255, .14);
+  --rest: rgba(255, 255, 255, .28); --buffered: rgba(255, 255, 255, .45); --accent-line: #8b90f5;
+  --menu: rgba(20, 12, 52, .96); --line: rgba(255, 255, 255, .12); --menu-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+  display: block; max-width: none; background: #000; color: #fff;
+}
+.player:-webkit-full-screen .screen { border-radius: 0; box-shadow: none; }
+.player:-webkit-full-screen video { width: 100vw; height: 100vh; max-width: none; aspect-ratio: auto; }
+.player:-webkit-full-screen .scrim {
+  display: block; position: absolute; inset: auto 0 0; height: 40%; pointer-events: none;
+  background: linear-gradient(to top, rgba(10, 2, 39, .82), rgba(10, 2, 39, 0)); transition: opacity .25s;
+}
+.player:-webkit-full-screen .controls { position: absolute; inset: auto 0 0; padding: 0 clamp(12px, 2vw, 24px) clamp(10px, 1.6vw, 18px); }
+.player:-webkit-full-screen.is-idle { cursor: none; }
+.player:-webkit-full-screen.is-idle .controls, .player:-webkit-full-screen.is-idle .scrim { opacity: 0; }
+.player:-webkit-full-screen.is-idle .controls { pointer-events: none; }
+
+@media (max-width: 560px) {
+  :root { --below: 136px; }
+  .download span { display: none; }
+  .download { width: 32px; padding: 0; justify-content: center; }
+}
+/* A phone on its side: the header tightens and the footer steps aside for the picture. */
+@media (max-height: 480px) {
+  .top { padding-block: 10px; }
+  .foot { display: none; }
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation-duration: .01ms !important; } }
 `;
 
@@ -855,20 +968,26 @@ const VIEWER_JS = `
 })();
 `;
 
-/** Material-style glyphs, all on a 24x24 grid and drawn in `currentColor`. */
+/**
+ * The app's glyphs, on a 16x16 grid in `currentColor`: thin strokes, except play and pause, which are
+ * solid shapes (the `solid` class).
+ */
 const ICONS = {
-  play: "M8 5v14l11-7z",
-  pause: "M6 5h4v14H6zm8 0h4v14h-4z",
-  volume: "M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.48 4.48 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z",
-  muted: "M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12a9 9 0 0 0-7-8.77v2.06A7 7 0 0 1 19 12zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.9 8.9 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z",
-  expand: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
-  shrink: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z",
-  pip: "M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z",
-  download: "M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z",
+  play: "M5.5 3.2v9.6L13 8z",
+  pause: "M4.5 3.2h2.4v9.6H4.5zM9.1 3.2h2.4v9.6H9.1z",
+  volume: "M3 6.5h2l3-2.5v8L5 9.5H3zM10.5 6a3 3 0 0 1 0 4M12.2 4.3a5.5 5.5 0 0 1 0 7.4",
+  muted: "M3 6.5h2l3-2.5v8L5 9.5H3zM10.5 6.3l3.4 3.4M13.9 6.3l-3.4 3.4",
+  expand: "M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3",
+  shrink: "M6 3v3H3M10 3v3h3M6 13v-3H3M10 13v-3h3",
+  pip: "M3.5 3h9A1.5 1.5 0 0 1 14 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3zM8.5 8h3.5v3H8.5z",
+  download: "M8 2.5V10M5 7.5l3 3 3-3M3 13h10",
 };
+const SOLID_ICONS = new Set(["play", "pause"]);
 
-const icon = (name, extra = "") =>
-  `<svg viewBox="0 0 24 24" aria-hidden="true"${extra ? ` class="${extra}"` : ""}><path d="${ICONS[name]}"/></svg>`;
+const icon = (name, extra = "") => {
+  const classes = [extra, SOLID_ICONS.has(name) ? "solid" : ""].filter(Boolean).join(" ");
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"${classes ? ` class="${classes}"` : ""}><path d="${ICONS[name]}"/></svg>`;
+};
 
 function escapeHTML(text) {
   return String(text).replace(/[&<>"']/g, (character) =>
@@ -931,9 +1050,10 @@ function viewerHTML(video, origin, nonce) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${title} · Ketto</title>
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#0c0715">
+<meta name="theme-color" content="#fbf6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0227" media="(prefers-color-scheme: dark)">
 <meta name="description" content="${escapeHTML(description)}">
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">
 <meta property="og:type" content="video.other">
 <meta property="og:site_name" content="Ketto">
 <meta property="og:title" content="${title}">
@@ -947,46 +1067,43 @@ function viewerHTML(video, origin, nonce) {
 </head>
 <body>
 <header class="top">
-  <span class="logo">${LOGO_SVG}</span>
-  <div class="heading">
-    <h1>${title}</h1>
-    <div class="meta">${escapeHTML(formatBytes(video.size))} <span id="expiry"></span></div>
-  </div>
-  <a class="download" href="${file}?download=1" download>${icon("download")}<span>Download</span></a>
+  ${WORDMARK}
+  <a class="download" href="${file}?download=1" download aria-label="Download the video">${icon("download")}<span>Download</span></a>
 </header>
 <main class="stage">
-  <div class="player" id="player" data-expires="${escapeHTML(video.expires)}">
-    <video id="video" src="${file}" preload="metadata" playsinline webkit-playsinline></video>
-    <button class="poster" id="poster" type="button" aria-label="Play"><i>${icon("play")}</i></button>
-    <div class="spinner"></div>
-    <div class="error"><p>This video could not be played.<br>The link may have expired.</p></div>
-    <div class="scrim"></div>
-    <div class="controls" id="controls">
-      <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Seek"
-           aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
-        <div class="track">
-          <div class="buffered" id="buffered"></div>
-          <div class="played" id="played"></div>
-          <div class="knob" id="knob"></div>
-        </div>
-        <div class="bubble" id="bubble">0:00</div>
+  <div class="sheet">
+    <div class="player" id="player" data-expires="${escapeHTML(video.expires)}">
+      <div class="screen">
+        <video id="video" src="${file}" preload="metadata" playsinline webkit-playsinline></video>
+        <button class="poster" id="poster" type="button" aria-label="Play"><i>${icon("play")}</i></button>
+        <div class="spinner"></div>
+        <div class="error"><p>This video could not be played.<br>The link may have expired.</p></div>
       </div>
-      <div class="row">
+      <div class="scrim"></div>
+      <div class="controls" id="controls">
         <button class="ctl play" id="play" type="button" aria-label="Play or pause">
           ${icon("play", "play-icon")}${icon("pause", "pause")}
         </button>
+        <span class="clock"><span id="now">0:00</span> <span class="total">/ <span id="total">0:00</span></span></span>
+        <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Seek"
+             aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+          <div class="track">
+            <div class="buffered" id="buffered"></div>
+            <div class="played" id="played"></div>
+            <div class="knob" id="knob"></div>
+          </div>
+          <div class="bubble" id="bubble">0:00</div>
+        </div>
+        <div class="speed">
+          <button class="ctl" id="speed" type="button" aria-haspopup="true" aria-expanded="false"
+                  aria-label="Playback speed">1×</button>
+          <div class="menu" id="speed-menu" role="menu"></div>
+        </div>
         <div class="volume">
           <button class="ctl" id="mute" type="button" aria-label="Mute">
             ${icon("volume", "volume-icon")}${icon("muted", "unmute")}
           </button>
           <input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
-        </div>
-        <span class="clock"><span id="now">0:00</span> <span class="total">/ <span id="total">0:00</span></span></span>
-        <span class="spacer"></span>
-        <div class="speed">
-          <button class="ctl" id="speed" type="button" aria-haspopup="true" aria-expanded="false"
-                  aria-label="Playback speed">1×</button>
-          <div class="menu" id="speed-menu" role="menu"></div>
         </div>
         <button class="ctl" id="pip" type="button" aria-label="Picture in picture">${icon("pip")}</button>
         <button class="ctl" id="fullscreen" type="button" aria-label="Full screen">
@@ -994,8 +1111,13 @@ function viewerHTML(video, origin, nonce) {
         </button>
       </div>
     </div>
+    <div class="caption">
+      <h1>${title}</h1>
+      <div class="meta">${escapeHTML(formatBytes(video.size))} <span id="expiry"></span></div>
+    </div>
   </div>
 </main>
+<footer class="foot">Recorded with <a href="/">Ketto</a>, a screen recorder for the Mac.</footer>
 <script nonce="${nonce}">${VIEWER_JS}</script>
 </body>
 </html>

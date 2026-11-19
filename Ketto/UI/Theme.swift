@@ -1,21 +1,126 @@
 import SwiftUI
 import AppKit
 
-/// Brand colours and the handful of shared controls every surface of the app is built from. The accent
-/// (violet) comes from the asset catalogue through `Color.accentColor`; only the record coral and the editor
-/// stage are fixed here, because they must read the same in light and dark appearance.
+/// Ketto's palette and the handful of shared controls every surface of the app is built from.
+///
+/// The look is calm and quiet but not grey: warm white surfaces, near-black ink, one ultramarine accent for
+/// anything that is on, selected or in progress, lime as a small "done" pop, and red only while recording.
+/// Lines are hairlines (`KettoTheme.line`, 1pt) throughout. Every colour has a dark counterpart, so the app
+/// still follows the system appearance; the asset catalogue's AccentColor matches `accent` for system controls.
 enum KettoTheme {
-    /// The record button, the recording dot and the stop button: the coral of the app icon.
-    static let record = Color(red: 1.0, green: 0.384, blue: 0.373)
-    static let recordPressed = Color(red: 0.86, green: 0.30, blue: 0.29)
-    /// The editor stage stays dark whatever the appearance, so the canvas reads like a video.
-    static let stage = Color(red: 0.086, green: 0.086, blue: 0.106)
-    static let stageEdge = Color(red: 0.13, green: 0.13, blue: 0.16)
-    /// Colours of the timeline blocks.
-    static let automaticZoom = Color(red: 0.24, green: 0.52, blue: 0.98)
-    static let manualZoom = Color(red: 0.62, green: 0.36, blue: 0.95)
-    static let blurMask = Color.teal
-    static let highlightMask = Color.yellow
+    // MARK: Surfaces
+
+    /// Page and card background.
+    static let canvas = dynamic(light: 0xFFFFFF, dark: 0x1A191E)
+    /// The warm off-white behind pages: sidebars, the editor stage, the share page.
+    static let surface = dynamic(light: 0xFBF6F4, dark: 0x211F25)
+    /// Quiet fills: segment tracks, chips, empty thumbnails, hover and press.
+    static let fill = dynamic(light: 0xF2EBE6, dark: 0x2D2B32)
+    /// 1pt separators and card outlines.
+    static let hairline = dynamic(light: 0xECE4DE, dark: 0x34313A)
+    /// 1pt outlines of secondary buttons and fields.
+    static let outline = dynamic(light: 0xD9D0C9, dark: 0x48454E)
+    /// Unfilled part of sliders, progress bars and meters.
+    static let track = dynamic(light: 0xE8E1DB, dark: 0x3A373F)
+
+    // MARK: Text
+
+    static let ink = dynamic(light: 0x1D1D1D, dark: 0xF4F1EE)
+    static let secondaryInk = dynamic(light: 0x5C5D6B, dark: 0xA7A8B6)
+    /// Text and icons on an `ink` fill (the primary pill flips to light in dark appearance).
+    static let onInk = dynamic(light: 0xFFFFFF, dark: 0x1D1D1D)
+
+    // MARK: Accent
+
+    /// Ultramarine: selection, on-states, progress, and the Export / Share / Done actions. White text on it.
+    static let accent = dynamic(light: 0x343CED, dark: 0x5D63F1)
+    /// Accent-coloured text and icons on `accentTint` (and on plain surfaces, for links).
+    static let accentInk = dynamic(light: 0x2A31D4, dark: 0xAAAEF8)
+    /// The fill of something that is on: a toggled input, a selected sidebar row or segment.
+    static let accentTint = dynamic(light: 0xE2E3FB, dark: 0x2B2E66)
+    /// A barely-there accent wash behind a selected card.
+    static let accentWash = dynamic(light: 0xF3F3FE, dark: 0x22244C)
+    /// Outline of accent-tinted things: automatic zoom blocks, selected cards.
+    static let accentLine = dynamic(light: 0xBABDF8, dark: 0x4C51BA)
+
+    // MARK: Pops
+
+    /// Lime, used sparingly: done badges and blur masks. Always with dark text on it.
+    static let lime = Color(hex: 0xD8FD49)
+    /// Text on `lime`.
+    static let onLime = Color(hex: 0x1D1D1D)
+    /// Olive text and outlines that sit with lime (the highlight mask).
+    static let olive = dynamic(light: 0x3F4D00, dark: 0xC9E25A)
+    static let oliveLine = dynamic(light: 0xA2BA25, dark: 0x8FA51E)
+    /// Something is wrong or needs a permission: a status dot, a small badge.
+    static let warning = dynamic(light: 0xF07A3E, dark: 0xFF935F)
+    /// Something is fine: a status dot.
+    static let positive = dynamic(light: 0x7E9A12, dark: 0xA2BA25)
+    /// Error text: readable on white (unlike `record`, which is a dot colour, not a text colour).
+    static let danger = dynamic(light: 0xC8321F, dark: 0xFF7A66)
+
+    // MARK: Recording
+
+    /// The recording dot: on Record, in the HUD, on the timeline's playhead marker. Never a button fill.
+    static let record = dynamic(light: 0xFF4F36, dark: 0xFF5F48)
+
+    // MARK: Lines and media
+
+    /// Every line in the app: separators, outlines, selection rings.
+    static let line: CGFloat = 1
+
+    /// Background presets and placeholder art: vivid, never pastel.
+    static let sunrise = LinearGradient(colors: [Color(hex: 0xFF935F), Color(hex: 0xE16BFF)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let cobalt = LinearGradient(colors: [Color(hex: 0x3CCBF4), Color(hex: 0x343CED)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let violet = LinearGradient(colors: [Color(hex: 0xD59BFF), Color(hex: 0x5D63F1)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let limeWash = LinearGradient(colors: [Color(hex: 0xD8FD49), Color(hex: 0x3CCBF4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let midnight = LinearGradient(colors: [Color(hex: 0x300876), Color(hex: 0x0A0227)], startPoint: .topLeading, endPoint: .bottomTrailing)
+
+    /// The editor stage behind the canvas: the same warm surface as the rest of the window.
+    static let stage = surface
+    static let stageEdge = hairline
+
+    // MARK: Timeline blocks
+
+    /// Automatic zooms: a canvas block with an accent outline and accent text.
+    static let automaticZoom = accentLine
+    /// Zooms the user placed or changed: solid accent.
+    static let manualZoom = accent
+    static let blurMask = lime
+    static let highlightMask = oliveLine
+
+    /// A colour that follows the window's appearance.
+    static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light)
+        })
+    }
+}
+
+extension NSColor {
+    /// `0xRRGGBB` in sRGB.
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(
+            srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: alpha
+        )
+    }
+}
+
+extension Color {
+    /// `0xRRGGBB` in sRGB.
+    init(hex: UInt32, opacity: Double = 1) {
+        self.init(
+            .sRGB,
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255,
+            opacity: opacity
+        )
+    }
 }
 
 // MARK: - Liquid glass
@@ -32,7 +137,7 @@ struct GlassSurface<S: Shape>: ViewModifier {
         } else {
             content
                 .background(material, in: shape)
-                .overlay(shape.stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+                .overlay(shape.stroke(Color.primary.opacity(0.14), lineWidth: 0.5))
         }
     }
 }
@@ -47,9 +152,16 @@ extension View {
     func glassSurface(cornerRadius: CGFloat, material: Material = .regularMaterial) -> some View {
         glassSurface(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), material: material)
     }
+
+    /// A card: canvas fill inside a 1pt hairline.
+    func card(cornerRadius: CGFloat = 14, fill: Color = KettoTheme.canvas, stroke: Color = KettoTheme.hairline) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return background(fill, in: shape)
+            .overlay(shape.strokeBorder(stroke, lineWidth: KettoTheme.line))
+    }
 }
 
-/// An AppKit visual effect view for window-level materials (the sidebar, toolbars).
+/// An AppKit visual effect view for window-level materials.
 struct VisualEffectView: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
@@ -72,25 +184,29 @@ struct VisualEffectView: NSViewRepresentable {
 
 // MARK: - Buttons
 
-/// The coral capsule: Record on the bar, Stop on the HUD, New Recording in the library.
+/// The ink capsule: the one primary action of a surface. Record on the bar (its label carries the red dot),
+/// Stop on the HUD, New Recording in the library, Play in the editor.
 struct RecordButtonStyle: ButtonStyle {
-    var height: CGFloat = 34
+    var height: CGFloat = 36
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: height > 30 ? 13 : 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, height > 30 ? 16 : 12)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(KettoTheme.onInk)
+            .padding(.leading, height > 30 ? 14 : 11)
+            .padding(.trailing, height > 30 ? 16 : 12)
             .frame(height: height)
-            .background(configuration.isPressed ? KettoTheme.recordPressed : KettoTheme.record, in: Capsule())
-            .shadow(color: KettoTheme.record.opacity(configuration.isPressed ? 0.15 : 0.35), radius: 8, y: 3)
+            .background(KettoTheme.ink.opacity(configuration.isPressed ? 0.78 : 1), in: Capsule())
+            .opacity(isEnabled ? 1 : 0.4)
             .contentShape(Capsule())
     }
 }
 
-/// The accent capsule: Share Link, and the one primary action on a page.
+/// The accent capsule: Export, Share Link, Done — the action that finishes a task.
 struct ProminentPillButtonStyle: ButtonStyle {
-    var height: CGFloat = 28
+    var height: CGFloat = 30
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -98,41 +214,48 @@ struct ProminentPillButtonStyle: ButtonStyle {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .frame(height: height)
-            .background(Color.accentColor.opacity(configuration.isPressed ? 0.8 : 1), in: Capsule())
+            .background(KettoTheme.accent.opacity(configuration.isPressed ? 0.82 : 1), in: Capsule())
+            .opacity(isEnabled ? 1 : 0.45)
             .contentShape(Capsule())
     }
 }
 
-/// A quiet capsule on a translucent fill: Cancel, Pause, secondary toolbar actions.
+/// A quiet outlined capsule: Cancel, Pause, Copy Link, secondary toolbar actions. `emphasized` is the
+/// on-state of a pill that toggles: accent tint, accent text, no outline.
 struct PillButtonStyle: ButtonStyle {
-    var height: CGFloat = 28
+    var height: CGFloat = 30
     var emphasized = false
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .padding(.horizontal, 12)
+            .font(.system(size: 13, weight: emphasized ? .semibold : .medium))
+            .foregroundStyle(emphasized ? KettoTheme.accentInk : KettoTheme.ink)
+            .padding(.horizontal, 14)
             .frame(height: height)
-            .background(
-                Color.primary.opacity(configuration.isPressed ? 0.16 : (emphasized ? 0.1 : 0.06)),
-                in: Capsule()
-            )
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+            .background(background(isPressed: configuration.isPressed), in: Capsule())
+            .overlay(Capsule().strokeBorder(emphasized ? Color.clear : KettoTheme.outline, lineWidth: KettoTheme.line))
+            .opacity(isEnabled ? 1 : 0.45)
             .contentShape(Capsule())
+    }
+
+    private func background(isPressed: Bool) -> Color {
+        if emphasized { return KettoTheme.accentTint.opacity(isPressed ? 0.7 : 1) }
+        return isPressed ? KettoTheme.fill : Color.clear
     }
 }
 
-/// A square icon button with a rounded hover/press fill, for toolbars and the bar.
+/// A square icon button with a rounded press fill, for toolbars and the bar.
 struct IconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
     var cornerRadius: CGFloat = 7
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 13, weight: .regular))
             .frame(width: size, height: size)
             .background(
-                Color.primary.opacity(configuration.isPressed ? 0.14 : 0),
+                configuration.isPressed ? KettoTheme.fill : Color.clear,
                 in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             )
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -147,7 +270,7 @@ struct HoverHighlight: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(
-                Color.primary.opacity(isHovering ? 0.07 : 0),
+                isHovering ? KettoTheme.fill.opacity(0.8) : Color.clear,
                 in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             )
             .onHover { isHovering = $0 }
@@ -162,6 +285,68 @@ extension View {
 
 // MARK: - Small pieces
 
+/// Ketto's wordmark: the red recording dot and the name in lowercase.
+struct Wordmark: View {
+    var size: CGFloat = 15
+
+    var body: some View {
+        HStack(spacing: size * 0.55) {
+            Circle()
+                .fill(KettoTheme.record)
+                .frame(width: size * 0.53, height: size * 0.53)
+            Text("ketto")
+                .font(.system(size: size, weight: .semibold))
+                .tracking(-0.15)
+                .foregroundStyle(KettoTheme.ink)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ketto")
+    }
+}
+
+/// A 1pt separator in the hairline colour.
+struct Hairline: View {
+    var axis: Axis = .horizontal
+
+    var body: some View {
+        Rectangle()
+            .fill(KettoTheme.hairline)
+            .frame(width: axis == .vertical ? KettoTheme.line : nil, height: axis == .horizontal ? KettoTheme.line : nil)
+    }
+}
+
+/// A round lime badge with a check: something finished.
+struct DoneBadge: View {
+    var size: CGFloat = 24
+
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: size * 0.46, weight: .semibold))
+            .foregroundStyle(KettoTheme.onLime)
+            .frame(width: size, height: size)
+            .background(KettoTheme.lime, in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
+/// A thin 2pt progress bar: the export, an upload, a link's remaining life.
+struct ThinProgressBar: View {
+    var fraction: Double
+    var tint: Color = KettoTheme.accent
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(KettoTheme.track)
+                Capsule()
+                    .fill(tint)
+                    .frame(width: proxy.size.width * min(max(fraction.isFinite ? fraction : 0, 0), 1))
+            }
+        }
+        .frame(height: 2)
+    }
+}
+
 /// A key cap, the way System Settings draws shortcuts.
 struct KeyCap: View {
     let text: String
@@ -169,10 +354,11 @@ struct KeyCap: View {
     var body: some View {
         Text(text)
             .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(KettoTheme.ink)
             .padding(.horizontal, 7)
             .frame(height: 22)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .background(KettoTheme.canvas, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(KettoTheme.outline, lineWidth: KettoTheme.line))
     }
 }
 
@@ -183,37 +369,57 @@ struct StatusDot: View {
     var body: some View {
         Circle()
             .fill(color)
-            .frame(width: 8, height: 8)
-            .overlay(Circle().strokeBorder(Color.black.opacity(0.1), lineWidth: 0.5))
+            .frame(width: 7, height: 7)
     }
 }
 
-/// The page header used by every page of the app window: a title, a subtitle, and trailing actions.
+/// The page header used by every page of the app window: a title, a subtitle, and trailing actions. A short
+/// subtitle (a count) sits on the title's baseline; a sentence goes underneath.
 struct PageHeader<Actions: View>: View {
     let title: String
     var subtitle: String?
+    var inline = false
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 22, weight: .bold))
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+        HStack(alignment: inline ? .center : .firstTextBaseline, spacing: 16) {
+            if inline {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    titleText
+                    subtitleText
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    titleText
+                    subtitleText
                 }
             }
             Spacer(minLength: 0)
             actions
         }
     }
+
+    private var titleText: some View {
+        Text(title)
+            .font(.system(size: 22, weight: .semibold))
+            .tracking(-0.2)
+            .foregroundStyle(KettoTheme.ink)
+    }
+
+    @ViewBuilder
+    private var subtitleText: some View {
+        if let subtitle {
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(KettoTheme.secondaryInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 }
 
 extension PageHeader where Actions == EmptyView {
-    init(title: String, subtitle: String? = nil) {
-        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    init(title: String, subtitle: String? = nil, inline: Bool = false) {
+        self.init(title: title, subtitle: subtitle, inline: inline) { EmptyView() }
     }
 }
 
@@ -236,7 +442,7 @@ enum KettoMark {
             let inset = rect.insetBy(dx: 2.5, dy: 2.5)
             let path = NSBezierPath()
             path.appendArc(withCenter: NSPoint(x: inset.midX, y: inset.midY), radius: inset.width / 2, startAngle: 300, endAngle: 240, clockwise: false)
-            path.lineWidth = 2.6
+            path.lineWidth = 1.6
             path.lineCapStyle = .round
             NSColor.black.setStroke()
             path.stroke()

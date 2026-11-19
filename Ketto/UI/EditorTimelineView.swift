@@ -33,11 +33,11 @@ struct EditorTimelineView: View {
     @State private var isScrubbing = false
 
     static let rulerHeight: CGFloat = 22
-    static let clipTrackHeight: CGFloat = 56
-    static let zoomTrackHeight: CGFloat = 30
-    static let maskTrackHeight: CGFloat = 24
-    static let trackSpacing: CGFloat = 4
-    static let headerWidth: CGFloat = 72
+    static let clipTrackHeight: CGFloat = 58
+    static let zoomTrackHeight: CGFloat = 28
+    static let maskTrackHeight: CGFloat = 28
+    static let trackSpacing: CGFloat = 6
+    static let headerWidth: CGFloat = 96
     private static let anchorsPerSecond = 4.0
 
     private var geometry: TimelineGeometry {
@@ -61,7 +61,6 @@ struct EditorTimelineView: View {
                 TimelineToolbar(session: session, geometry: geometry, viewportWidth: viewportWidth, scrollOffset: scrollOffset) { time, fraction in
                     scroll(proxy, toTime: time, atFraction: fraction)
                 }
-                Divider()
                 HStack(spacing: 0) {
                     headerColumn
                         .frame(width: Self.headerWidth, height: totalHeight)
@@ -81,13 +80,14 @@ struct EditorTimelineView: View {
                     }
                     .frame(height: totalHeight)
                 }
-                .background(Color(nsColor: .underPageBackgroundColor))
+                .padding(.trailing, 16)
+                .background(KettoTheme.canvas)
                 PlayheadFollower(session: session, geometry: geometry, viewportWidth: viewportWidth, scrollOffset: scrollOffset) { time, fraction in
                     scroll(proxy, toTime: time, atFraction: fraction)
                 }
             }
         }
-        .frame(height: totalHeight + 30)
+        .frame(height: totalHeight + 52)
     }
 
     // MARK: - Header
@@ -103,38 +103,44 @@ struct EditorTimelineView: View {
             HStack(spacing: 4) {
                 trackLabel("Zoom", systemImage: "plus.magnifyingglass")
                 Spacer(minLength: 0)
-                Button { session.addZoomAtPlayhead() } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
+                Button { session.addZoomAtPlayhead() } label: { AddBadge() }
+                    .buttonStyle(.plain)
                     .help("Add a zoom at the playhead")
+                    .accessibilityLabel("Add a zoom at the playhead")
             }
             .frame(height: Self.zoomTrackHeight)
             Spacer().frame(height: Self.trackSpacing)
             HStack(spacing: 4) {
-                trackLabel("Masks", systemImage: "eye.slash")
+                trackLabel("Masks", systemImage: "drop")
                 Spacer(minLength: 0)
                 Menu {
                     Button("Blur Region") { session.addMask(kind: .blur) }
                     Button("Highlight Region") { session.addMask(kind: .highlight) }
                 } label: {
-                    Image(systemName: "plus")
+                    AddBadge()
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Add a mask at the playhead")
+                .accessibilityLabel("Add a blur or highlight at the playhead")
             }
             .frame(height: Self.maskTrackHeight)
         }
-        .padding(.horizontal, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .background(KettoTheme.canvas)
     }
 
     private func trackLabel(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .labelStyle(.titleAndIcon)
-            .lineLimit(1)
+        HStack(spacing: 7) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .regular))
+            Text(title)
+                .font(.system(size: 12))
+        }
+        .foregroundStyle(KettoTheme.secondaryInk)
+        .lineLimit(1)
     }
 
     // MARK: - Scrolling content
@@ -203,8 +209,8 @@ struct EditorTimelineView: View {
     }
 
     private func trackBackground(y: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(Color.primary.opacity(0.05))
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(KettoTheme.surface)
             .frame(width: geometry.contentWidth - TimelineGeometry.trailingPadding, height: height)
             .offset(y: y)
             .contentShape(Rectangle())
@@ -284,25 +290,55 @@ private struct TimelineToolbar: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button { session.splitAtPlayhead() } label: { Label("Split", systemImage: "scissors") }
+        HStack(spacing: 6) {
+            toolButton("Split", systemImage: "scissors", shortcut: "⌘B") { session.splitAtPlayhead() }
                 .help("Split the clip at the playhead (⌘B)")
-            Button { session.deleteSelection() } label: { Label("Delete", systemImage: "trash") }
+            toolButton("Delete", systemImage: "trash", shortcut: "⌫") { session.deleteSelection() }
                 .disabled(session.selection == nil)
                 .help("Delete the selected block (⌫)")
             Spacer()
-            Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary)
-            Slider(value: zoomLevel, in: 0...1)
-                .frame(width: 140)
+            Image(systemName: "minus.magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(KettoTheme.secondaryInk)
+            EditorSlider(value: zoomLevel, range: 0...1)
+                .frame(width: 96)
                 .help("Timeline zoom")
-            Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary)
-            Button("Fit") { session.timelinePixelsPerSecond = 0 }
-                .help("Fit the whole edit in the window (⌘0)")
+                .accessibilityLabel("Timeline zoom")
+            Image(systemName: "plus.magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(KettoTheme.secondaryInk)
+            Button {
+                session.timelinePixelsPerSecond = 0
+            } label: {
+                Text("Fit").font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(PillButtonStyle(height: 26))
+            .help("Fit the whole edit in the window (⌘0)")
         }
-        .buttonStyle(.borderless)
-        .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+    }
+
+    private func toolButton(_ title: String, systemImage: String, shortcut: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .regular))
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Text(shortcut)
+                    .font(.system(size: 13))
+                    .foregroundStyle(KettoTheme.secondaryInk)
+            }
+            .foregroundStyle(KettoTheme.ink)
+            .padding(.leading, 8)
+            .padding(.trailing, 10)
+            .frame(height: 28)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .hoverHighlight(cornerRadius: 14)
     }
 
     private func setZoom(level: Double) {
@@ -329,8 +365,8 @@ private struct PlayheadTimecode: View {
 
     var body: some View {
         Text(TransportBar.timecode(session.player.currentTime))
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(KettoTheme.secondaryInk)
     }
 }
 
@@ -343,12 +379,12 @@ private struct PlayheadView: View {
         let x = geometry.x(session.player.currentTime)
         ZStack(alignment: .top) {
             Rectangle()
-                .fill(KettoTheme.record)
-                .frame(width: 1, height: height)
-            Image(systemName: "arrowtriangle.down.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(KettoTheme.record)
-                .offset(y: EditorTimelineView.rulerHeight - 10)
+                .fill(KettoTheme.ink)
+                .frame(width: KettoTheme.line, height: height)
+            UnevenRoundedRectangle(topLeadingRadius: 2, bottomLeadingRadius: 4.5, bottomTrailingRadius: 4.5, topTrailingRadius: 2, style: .continuous)
+                .fill(KettoTheme.ink)
+                .frame(width: 9, height: 11)
+                .offset(y: EditorTimelineView.rulerHeight - 11)
         }
         .frame(width: 11, height: height, alignment: .top)
         .offset(x: x - 5)
@@ -405,7 +441,7 @@ private struct RulerCanvas: View {
                 if isMajor {
                     majors.move(to: CGPoint(x: x, y: size.height - 9))
                     majors.addLine(to: CGPoint(x: x, y: size.height))
-                    let label = Text(Self.label(t, step: step)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.secondary)
+                    let label = Text(Self.label(t, step: step)).font(.system(size: 10).monospacedDigit()).foregroundStyle(KettoTheme.secondaryInk)
                     context.draw(label, at: CGPoint(x: x + 3, y: 2), anchor: .topLeading)
                 } else {
                     ticks.move(to: CGPoint(x: x, y: size.height - 4))
@@ -413,10 +449,10 @@ private struct RulerCanvas: View {
                 }
                 t += minor
             }
-            context.stroke(ticks, with: .color(.secondary.opacity(0.5)), lineWidth: 1)
-            context.stroke(majors, with: .color(.secondary), lineWidth: 1)
-            let baseline = Path(CGRect(x: 0, y: size.height - 0.5, width: size.width, height: 0.5))
-            context.fill(baseline, with: .color(.secondary.opacity(0.4)))
+            context.stroke(ticks, with: .color(KettoTheme.hairline), lineWidth: KettoTheme.line)
+            context.stroke(majors, with: .color(KettoTheme.outline), lineWidth: KettoTheme.line)
+            let baseline = Path(CGRect(x: 0, y: size.height - KettoTheme.line, width: size.width, height: KettoTheme.line))
+            context.fill(baseline, with: .color(KettoTheme.hairline))
         }
     }
 
@@ -451,13 +487,14 @@ private struct MainTrackCanvas: View {
                 guard right > 0, left < size.width else { continue }
                 let rect = CGRect(x: left, y: 0, width: right - left, height: size.height)
                 var clipped = context
-                clipped.clip(to: Path(roundedRect: rect, cornerRadius: 4))
-                clipped.fill(Path(rect), with: .color(Color(nsColor: .controlBackgroundColor).opacity(0.6)))
+                clipped.clip(to: Path(roundedRect: rect.insetBy(dx: 1, dy: 0), cornerRadius: 8, style: .continuous))
+                clipped.fill(Path(rect), with: .color(KettoTheme.fill))
 
                 if let filmstrip {
                     let slotWidth = max(size.height * 16 / 9, 24)
                     let firstSlot = max(0, ((-left) / slotWidth).rounded(.down))
                     var slotX = left + firstSlot * slotWidth
+                    var seams = Path()
                     while slotX < min(right, size.width) {
                         let outputTime = geometry.time(slotX + scrollOffset)
                         let sourceTime = segment.sourceTime(forOutput: min(max(outputTime, segment.outputStart), segment.outputEnd))
@@ -467,8 +504,13 @@ private struct MainTrackCanvas: View {
                             let drawWidth = size.height * thumbnailAspect
                             clipped.draw(image, in: CGRect(x: slotX, y: 0, width: drawWidth, height: size.height))
                         }
+                        if slotX > left {
+                            seams.addRect(CGRect(x: slotX, y: 0, width: KettoTheme.line, height: size.height))
+                        }
                         slotX += slotWidth
                     }
+                    // Thin seams between the frames, so the strip reads as a filmstrip rather than one smear.
+                    clipped.fill(seams, with: .color(KettoTheme.fill))
                 }
 
                 // Waveforms: system audio faint underneath, the voice track on top.
@@ -495,8 +537,8 @@ private struct MainTrackCanvas: View {
                     }
                     x += 1
                 }
-                clipped.fill(systemPath, with: .color(.secondary.opacity(0.35)))
-                clipped.fill(micPath, with: .color(.accentColor.opacity(0.7)))
+                clipped.fill(systemPath, with: .color(KettoTheme.secondaryInk.opacity(0.3)))
+                clipped.fill(micPath, with: .color(KettoTheme.accent.opacity(0.68)))
             }
         }
     }
@@ -504,8 +546,10 @@ private struct MainTrackCanvas: View {
 
 // MARK: - Blocks
 
+/// The invisible 8pt grab area at either end of a block, with a 1pt grip line in the middle.
 private struct TrimHandle: View {
     let height: CGFloat
+    var grip: Color = KettoTheme.secondaryInk.opacity(0.45)
 
     var body: some View {
         Rectangle()
@@ -513,10 +557,22 @@ private struct TrimHandle: View {
             .frame(width: 8, height: height)
             .contentShape(Rectangle())
             .overlay(
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(Color.primary.opacity(0.5))
-                    .frame(width: 2, height: max(height * 0.4, 8))
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(grip)
+                    .frame(width: KettoTheme.line, height: min(max(height * 0.4, 8), 12))
             )
+    }
+}
+
+/// The small round "+" beside a track's name.
+private struct AddBadge: View {
+    var body: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(KettoTheme.ink)
+            .frame(width: 20, height: 20)
+            .background(KettoTheme.fill, in: Circle())
+            .contentShape(Circle())
     }
 }
 
@@ -536,20 +592,21 @@ private struct ClipBlockView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.25), lineWidth: isSelected ? 2 : 1)
-                .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSelected ? KettoTheme.accent : KettoTheme.hairline, lineWidth: KettoTheme.line)
+                .background(isSelected ? KettoTheme.accent.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .padding(.horizontal, 1)
                 .frame(width: width, height: height)
                 .contentShape(Rectangle())
                 .onTapGesture { session.selection = .clip(segment.clipID) }
             if abs(segment.speed - 1) > 1e-6 {
                 Text(Self.speedLabel(segment.speed))
-                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                    .padding(.horizontal, 4)
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(.orange.opacity(0.85), in: Capsule())
-                    .foregroundStyle(.white)
-                    .offset(x: 6, y: 4)
+                    .background(KettoTheme.ink, in: Capsule())
+                    .foregroundStyle(KettoTheme.onInk)
+                    .offset(x: 7, y: 6)
             }
             HStack(spacing: 0) {
                 TrimHandle(height: height).gesture(trimGesture(leading: true))
@@ -617,19 +674,29 @@ private struct ZoomBlockView: View {
         if let range = timeline.outputRange(sourceStart: zoom.start, sourceEnd: zoom.end) {
             let x = geometry.x(range.lowerBound)
             let width = max(geometry.x(range.upperBound - range.lowerBound), 6)
+            let isSolid = zoom.userModified || isSelected
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(zoom.userModified ? KettoTheme.manualZoom.opacity(isSelected ? 0.85 : 0.6) : KettoTheme.automaticZoom.opacity(isSelected ? 0.85 : 0.6))
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(isSelected ? Color.white : Color.white.opacity(0.3), lineWidth: isSelected ? 2 : 1))
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isSolid ? KettoTheme.manualZoom : KettoTheme.canvas)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(isSolid ? Color.clear : KettoTheme.automaticZoom, lineWidth: KettoTheme.line)
+                    )
+                    .overlay(
+                        // Selected: a 1pt inner line, so a selected manual zoom still reads apart from the others.
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(Color.white.opacity(isSelected ? 0.85 : 0), lineWidth: KettoTheme.line)
+                            .padding(2)
+                    )
                 Text(String(format: "%.1f×", zoom.scale))
-                    .font(.system(size: 10, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .padding(.leading, 10)
+                    .font(.system(size: 11, weight: isSolid ? .semibold : .regular).monospacedDigit())
+                    .foregroundStyle(isSolid ? Color.white : KettoTheme.accentInk)
+                    .padding(.leading, 9)
                     .lineLimit(1)
                 HStack(spacing: 0) {
-                    TrimHandle(height: height).gesture(trimGesture(leading: true))
+                    TrimHandle(height: height, grip: isSolid ? Color.white.opacity(0.6) : KettoTheme.accentLine).gesture(trimGesture(leading: true))
                     Spacer(minLength: 0)
-                    TrimHandle(height: height).gesture(trimGesture(leading: false))
+                    TrimHandle(height: height, grip: isSolid ? Color.white.opacity(0.6) : KettoTheme.accentLine).gesture(trimGesture(leading: false))
                 }
             }
             .frame(width: width, height: height)
@@ -641,9 +708,10 @@ private struct ZoomBlockView: View {
         } else {
             // Inside a cut: a marker at the point where the cut happens, so the block can still be found.
             Rectangle()
-                .fill(KettoTheme.automaticZoom.opacity(0.4))
-                .frame(width: 3, height: height)
-                .offset(x: geometry.x(timeline.outputTime(forSource: zoom.start)) - 1)
+                .fill(Color.white.opacity(0.001))
+                .frame(width: 7, height: height)
+                .overlay(Rectangle().fill(KettoTheme.accent).frame(width: KettoTheme.line))
+                .offset(x: geometry.x(timeline.outputTime(forSource: zoom.start)) - 3)
                 .contentShape(Rectangle())
                 .onTapGesture { session.selection = .zoom(zoom.id) }
                 .help("This zoom lies inside a cut")
@@ -718,6 +786,7 @@ private struct MaskBlockView: View {
 
     private var isSelected: Bool { session.selection == .mask(mask.id) }
     private var color: Color { mask.kind == .blur ? KettoTheme.blurMask : KettoTheme.highlightMask }
+    private var isBlur: Bool { mask.kind == .blur }
 
     var body: some View {
         let timeline = session.timeline
@@ -726,19 +795,28 @@ private struct MaskBlockView: View {
             let x = geometry.x(range.lowerBound)
             let width = max(geometry.x(range.upperBound - range.lowerBound), 6)
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(color.opacity(isSelected ? 0.7 : 0.45))
-                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(isSelected ? Color.white : Color.white.opacity(0.3), lineWidth: isSelected ? 2 : 1))
-                Label(mask.kind == .blur ? "Blur" : "Highlight", systemImage: mask.kind == .blur ? "drop.fill" : "sun.max.fill")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.leading, 10)
+                // Blur is a lime block; highlight is a canvas block in an olive outline.
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isBlur ? KettoTheme.blurMask : KettoTheme.canvas)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(isBlur ? Color.clear : KettoTheme.highlightMask, lineWidth: KettoTheme.line)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(isBlur ? KettoTheme.onLime.opacity(isSelected ? 0.7 : 0) : KettoTheme.olive.opacity(isSelected ? 0.8 : 0), lineWidth: KettoTheme.line)
+                            .padding(2)
+                    )
+                Text(isBlur ? "Blur" : "Highlight")
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(isBlur ? Color(hex: 0x3F4D00) : KettoTheme.olive)
+                    .padding(.leading, 9)
                     .lineLimit(1)
                 HStack(spacing: 0) {
-                    TrimHandle(height: height).gesture(trimGesture(leading: true))
+                    TrimHandle(height: height, grip: isBlur ? Color(hex: 0x3F4D00).opacity(0.45) : KettoTheme.highlightMask).gesture(trimGesture(leading: true))
                     Spacer(minLength: 0)
                     if mask.end != nil {
-                        TrimHandle(height: height).gesture(trimGesture(leading: false))
+                        TrimHandle(height: height, grip: isBlur ? Color(hex: 0x3F4D00).opacity(0.45) : KettoTheme.highlightMask).gesture(trimGesture(leading: false))
                     }
                 }
             }
@@ -749,9 +827,10 @@ private struct MaskBlockView: View {
             .offset(x: x)
         } else {
             Rectangle()
-                .fill(color.opacity(0.4))
-                .frame(width: 3, height: height)
-                .offset(x: geometry.x(timeline.outputTime(forSource: mask.start)) - 1)
+                .fill(Color.white.opacity(0.001))
+                .frame(width: 7, height: height)
+                .overlay(Rectangle().fill(isBlur ? KettoTheme.olive : color).frame(width: KettoTheme.line))
+                .offset(x: geometry.x(timeline.outputTime(forSource: mask.start)) - 3)
                 .contentShape(Rectangle())
                 .onTapGesture { session.selection = .mask(mask.id) }
         }

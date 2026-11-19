@@ -58,7 +58,7 @@ private struct RectEditor: View {
                 .allowsHitTesting(false)
             }
             Rectangle()
-                .strokeBorder(color, lineWidth: 1.5)
+                .strokeBorder(color, lineWidth: KettoTheme.line)
                 .background(Color.white.opacity(0.001))
                 .frame(width: max(rect.width, 1), height: max(rect.height, 1))
                 .offset(x: rect.minX, y: rect.minY)
@@ -68,7 +68,8 @@ private struct RectEditor: View {
                 let point = handle.point(in: rect)
                 Circle()
                     .fill(Color.white)
-                    .overlay(Circle().strokeBorder(color, lineWidth: 1.5))
+                    .overlay(Circle().strokeBorder(color, lineWidth: KettoTheme.line))
+                    .shadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
                     .frame(width: Self.handleSize, height: Self.handleSize)
                     .contentShape(Circle().inset(by: -4))
                     .offset(x: point.x - Self.handleSize / 2, y: point.y - Self.handleSize / 2)
@@ -168,7 +169,7 @@ private struct CropEditor: View {
         let canvasSize = CGSize(width: composer.layout.canvasSize.x * scale, height: composer.layout.canvasSize.y * scale)
         RectEditor(
             rect: mapping.viewRect(normalised: session.edit.crop.rect),
-            color: .yellow,
+            color: KettoTheme.accent,
             dimOutside: true,
             canvasSize: canvasSize,
             onBegin: { session.beginGesture() },
@@ -194,7 +195,7 @@ private struct MaskEditor: View {
         let id = mask.id
         RectEditor(
             rect: mapping.viewRect(normalised: mask.rect),
-            color: mask.kind == .blur ? .teal : .yellow,
+            color: mask.kind == .blur ? KettoTheme.accent : KettoTheme.oliveLine,
             dimOutside: false,
             canvasSize: canvasSize,
             onBegin: {
@@ -266,17 +267,15 @@ private struct ZoomTargetEditor: View {
     var body: some View {
         let mapping = OverlayMapping(composer: composer, viewport: viewport, scale: scale)
         let point = mapping.viewPoint(normalised: zoom.target)
+        // A white disc ringed 1pt in the accent, with an accent cross: readable on any frame of video.
         ZStack {
             Circle()
-                .strokeBorder(Color.white, lineWidth: 2)
-                .frame(width: 28, height: 28)
-            Circle()
-                .strokeBorder(Color.black.opacity(0.5), lineWidth: 1)
-                .frame(width: 32, height: 32)
-            Rectangle().fill(Color.white).frame(width: 1.5, height: 10).offset(y: -19)
-            Rectangle().fill(Color.white).frame(width: 1.5, height: 10).offset(y: 19)
-            Rectangle().fill(Color.white).frame(width: 10, height: 1.5).offset(x: -19)
-            Rectangle().fill(Color.white).frame(width: 10, height: 1.5).offset(x: 19)
+                .fill(Color.white)
+                .overlay(Circle().strokeBorder(KettoTheme.accent, lineWidth: KettoTheme.line))
+                .shadow(color: .black.opacity(0.25), radius: 5, y: 2)
+                .frame(width: 26, height: 26)
+            Rectangle().fill(KettoTheme.accent).frame(width: KettoTheme.line, height: 10)
+            Rectangle().fill(KettoTheme.accent).frame(width: 10, height: KettoTheme.line)
         }
         .frame(width: 48, height: 48)
         .contentShape(Circle())

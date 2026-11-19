@@ -80,12 +80,14 @@ struct AppShellView: View {
     var body: some View {
         HStack(spacing: 0) {
             Sidebar(model: model)
-                .frame(width: 210)
-            Divider()
+                .frame(width: 220)
+            Hairline(axis: .vertical)
             page
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(KettoTheme.canvas)
         }
+        .foregroundStyle(KettoTheme.ink)
+        .tint(KettoTheme.accent)
     }
 
     @ViewBuilder
@@ -110,28 +112,38 @@ private struct Sidebar: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // The traffic lights sit in this corner.
-            Spacer().frame(height: 52)
-            row(.library)
-            row(.sharedLinks)
-            Text("Settings")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            // The traffic lights sit in this corner; the wordmark sits under them.
+            Spacer().frame(height: 46)
+            Wordmark()
                 .padding(.horizontal, 10)
-                .padding(.top, 18)
-                .padding(.bottom, 4)
-            row(.recording)
-            row(.sharing)
-            row(.updates)
+                .padding(.bottom, 20)
+            VStack(alignment: .leading, spacing: 2) {
+                row(.library)
+                row(.sharedLinks)
+            }
+            Text("Settings")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(KettoTheme.secondaryInk)
+                .padding(.horizontal, 10)
+                .padding(.top, 20)
+                .padding(.bottom, 6)
+            VStack(alignment: .leading, spacing: 2) {
+                row(.recording)
+                row(.sharing)
+                row(.updates)
+            }
             Spacer()
-            versionLine
+            Text(versionText)
+                .font(.system(size: 12))
+                .foregroundStyle(KettoTheme.secondaryInk)
+                .lineLimit(1)
                 .padding(.horizontal, 10)
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 16)
         .frame(maxHeight: .infinity)
-        .background(VisualEffectView(material: .sidebar).ignoresSafeArea())
+        .background(KettoTheme.surface.ignoresSafeArea())
     }
 
     private func row(_ page: AppPage) -> some View {
@@ -139,38 +151,29 @@ private struct Sidebar: View {
         return Button {
             model.page = page
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 9) {
                 Image(systemName: page.symbol)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .font(.system(size: 14, weight: .regular))
                     .frame(width: 18)
                 Text(page.title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                 Spacer(minLength: 0)
                 if page == .sharedLinks, let count = model.share?.videos.count, count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .foregroundStyle(KettoTheme.secondaryInk)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .foregroundStyle(isSelected ? KettoTheme.accentInk : KettoTheme.ink)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(isSelected ? KettoTheme.accentTint : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-
-    private var versionLine: some View {
-        HStack(spacing: 6) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
-                .resizable()
-                .frame(width: 18, height: 18)
-            Text(versionText)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
+        .hoverHighlight(cornerRadius: 8)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var versionText: String {
@@ -195,26 +198,35 @@ struct RecordingPlaceholderView: View {
             switch model.phase {
             case .countdown(let remaining):
                 Text("Recording starts in \(remaining)…")
-                    .font(.title2)
+                    .font(.system(size: 20, weight: .semibold))
                 Button("Cancel") { model.cancelCountdown() }
                     .buttonStyle(PillButtonStyle())
             case .recording:
-                Image(systemName: "record.circle")
-                    .font(.system(size: 40))
-                    .foregroundStyle(KettoTheme.record)
+                Circle()
+                    .fill(KettoTheme.record)
+                    .frame(width: 12, height: 12)
                 Text("Recording…")
-                    .font(.title2)
-                Button("Stop Recording") { model.stopRecording() }
-                    .buttonStyle(RecordButtonStyle())
+                    .font(.system(size: 20, weight: .semibold))
+                Button {
+                    model.stopRecording()
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 9))
+                        Text("Stop Recording")
+                    }
+                }
+                .buttonStyle(RecordButtonStyle())
             case .finishing:
                 ProgressView()
                 Text("Saving recording…")
-                    .font(.title2)
+                    .font(.system(size: 20, weight: .semibold))
             case .idle, .editing:
                 EmptyView()
             }
         }
+        .foregroundStyle(KettoTheme.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(KettoTheme.surface)
     }
 }
